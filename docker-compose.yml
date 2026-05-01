@@ -1,0 +1,22 @@
+services:
+    postgres:
+        image: postgres:15-alpine
+        environment:
+            POSTGRES_DB: ecommerce_database_for_the_legends_of_the_workd
+            POSTGRES_USER: mrmohammed
+            POSTGRES_PASSWORD: youruncletruepassword
+        ports:
+            - '5433:5432'
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+
+    redis:
+        image: redis:8.4-alpine
+        ports:
+            - '6379:6379'
+        volumes:
+            - redis_data:/data
+
+volumes:
+    postgres_data:
+    redis_data:
