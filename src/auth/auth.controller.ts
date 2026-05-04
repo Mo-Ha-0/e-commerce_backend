@@ -32,9 +32,10 @@ export class AuthController {
     login(@Body() dto: LoginDto) {
         return this.authService.login(dto);
     }
-    // @Roles(UserRole.SuperAdmin)
-    // @UseGuards(JwtAuthGuard, RolesGuard)
-    @UseGuards(JwtAuthGuard)
+
+    @Roles(UserRole.SuperAdmin, UserRole.Admin, UserRole.Customer)
+    @UseGuards(JwtAuthGuard, RolesGuard)
+    // @UseGuards(JwtAuthGuard)
     @Get('me')
     me(@CurrentUser() user: JwtUser) {
         return this.authService.me(user);

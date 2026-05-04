@@ -30,7 +30,7 @@ export class AuthService {
         const user = await this.usersService.create({
             email: dto.email,
             passwordHash,
-            role: UserRole.SuperAdmin,
+            role: UserRole.Customer,
         });
 
         return this.toPublicUser(user);
