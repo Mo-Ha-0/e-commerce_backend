@@ -35,52 +35,63 @@ export class OrdersService {
             throw new BadRequestException('Cart is empty');
         }
 
-        let totalAmount = 0;
-        const orderItems: OrderItem[] = [];
-
-        for (const cartItem of cartItems) {
-            const product = await this.productsRepository.findOne({
-                where: { id: cartItem.productId },
-            });
-
-            if (!product) {
-                throw new NotFoundException('Product not found');
-            }
-
-            if (product.stock < cartItem.quantity) {
-                throw new BadRequestException('Insufficient stock');
-            }
-
-            product.stock -= cartItem.quantity;
-            await this.productsRepository.save(product);
-
-            totalAmount += Number(product.price) * cartItem.quantity;
-
-            orderItems.push(
-                this.orderItemsRepository.create({
-                    productId: product.id,
-                    quantity: cartItem.quantity,
-                    priceAtTime: product.price,
-                }),
-            );
-        }
-
         const order = await this.ordersRepository.save(
             this.ordersRepository.create({
                 userId,
-                totalAmount: totalAmount.toFixed(2),
-                status: OrderStatus.Completed,
+                totalAmount: '0',
+                status: OrderStatus.Pending,
             }),
         );
 
-        for (const item of orderItems) {
-            item.orderId = order.id;
+        try {
+            order.status = OrderStatus.Processing;
+            await this.ordersRepository.save(order);
+
+            let totalAmount = 0;
+            const orderItems: OrderItem[] = [];
+
+            for (const cartItem of cartItems) {
+                const product = await this.productsRepository.findOne({
+                    where: { id: cartItem.productId },
+                });
+
+                if (!product) {
+                    throw new NotFoundException('Product not found');
+                }
+
+                if (product.stock < cartItem.quantity) {
+                    throw new BadRequestException('Insufficient stock');
+                }
+
+                product.stock -= cartItem.quantity;
+                await this.productsRepository.save(product);
+
+                totalAmount += Number(product.price) * cartItem.quantity;
+
+                orderItems.push(
+                    this.orderItemsRepository.create({
+                        orderId: order.id,
+                        productId: product.id,
+                        quantity: cartItem.quantity,
+                        priceAtTime: product.price,
+                    }),
+                );
+            }
+
+            order.items = await this.orderItemsRepository.save(orderItems);
+
+            order.totalAmount = totalAmount.toFixed(2);
+            order.status = OrderStatus.Completed;
+            await this.ordersRepository.save(order);
+
+            await this.cartRepository.delete({ userId });
+
+            return order;
+        } catch (error) {
+            order.status = OrderStatus.Failed;
+            await this.ordersRepository.save(order);
+            throw error;
         }
-
-        order.items = await this.orderItemsRepository.save(orderItems);
-        await this.cartRepository.delete({ userId });
-
-        return order;
     }
 
     findMine(userId: string) {
@@ -113,19 +124,17 @@ export class OrdersService {
     }
 
     async findAll() {
-        const orders = this.ordersRepository.find({
+        const orders = await this.ordersRepository.find({
             relations: { items: true, user: true },
             order: { createdAt: 'DESC' },
         });
 
-        const filteredOrders = (await orders).map((order) => {
+        return orders.map((order) => {
             const { passwordHash, ...userWithoutPassword } = order.user;
             return {
                 ...order,
                 user: userWithoutPassword,
             };
         });
-
-        return filteredOrders;
     }
 }

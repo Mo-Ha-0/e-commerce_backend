@@ -11,6 +11,8 @@ import { OrderItem } from './order-item.entity';
 import { User } from './user.entity';
 
 export enum OrderStatus {
+    Pending = 'pending',
+    Processing = 'processing',
     Completed = 'completed',
     Failed = 'failed',
 }
