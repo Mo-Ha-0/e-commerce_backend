@@ -18,7 +18,9 @@
         "test:cov": "jest --coverage",
         "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
         "test:e2e": "jest --config ./test/jest-e2e.json",
-        "seed": "ts-node -r tsconfig-paths/register src/database/seed.ts"
+        "seed": "ts-node -r tsconfig-paths/register src/database/seed.ts",
+        "seed:test": "ts-node -r tsconfig-paths/register src/database/seed-test.ts",
+        "artillery:csv": "ts-node artillery/generate-csv.ts"
     },
     "dependencies": {
         "@nestjs/bullmq": "^11.0.4",

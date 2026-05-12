@@ -5,10 +5,15 @@ import { DataSource, Repository } from 'typeorm';
 import { CartItem } from './entities/cart-item.entity';
 import { InventoryLog } from './entities/inventory-log.entity';
 import { OrderItem } from './entities/order-item.entity';
-import { Order, OrderStatus } from './entities/order.entity';
+import { Order, OrderStatus, PaymentStatus } from './entities/order.entity';
 import { Product } from './entities/product.entity';
 import { SalesSummary } from './entities/sales-summary.entity';
 import { User, UserRole } from './entities/user.entity';
+import {
+    WalletTransaction,
+    WalletTransactionReason,
+    WalletTransactionType,
+} from './entities/wallet-transaction.entity';
 
 type SeedProduct = {
     name: string;
@@ -87,6 +92,7 @@ function createDataSource() {
             OrderItem,
             InventoryLog,
             SalesSummary,
+            WalletTransaction,
         ],
         synchronize: (process.env.TYPEORM_SYNC ?? 'true') === 'true',
         logging: (process.env.TYPEORM_LOGGING ?? 'false') === 'true',
@@ -100,6 +106,7 @@ async function upsertUser(
     repository: Repository<User>,
     email: string,
     role: UserRole,
+    balance = '0.00',
 ) {
     const passwordHash = await bcrypt.hash('password123', 10);
     const existing = await repository.findOne({ where: { email } });
@@ -107,6 +114,7 @@ async function upsertUser(
     if (existing) {
         existing.role = role;
         existing.passwordHash = passwordHash;
+        existing.balance = balance;
         return repository.save(existing);
     }
 
@@ -115,6 +123,7 @@ async function upsertUser(
             email,
             passwordHash,
             role,
+            balance,
         }),
     );
 }
@@ -155,6 +164,8 @@ async function seedCompletedOrder(
             userId: customer.id,
             totalAmount: (Number(product.price) * 2).toFixed(2),
             status: OrderStatus.Completed,
+            paymentStatus: PaymentStatus.Paid,
+            paidAt: new Date(),
         }),
     );
 
@@ -195,10 +206,71 @@ async function seedInventoryLog(
     );
 }
 
+async function seedWalletTransactions(
+    repository: Repository<WalletTransaction>,
+    admin: User,
+    customer: User,
+    seedOrder: Order,
+) {
+    const existing = await repository.findOne({
+        where: {
+            userId: customer.id,
+            reason: WalletTransactionReason.AdminDeposit,
+            note: 'seed-wallet-credit',
+        },
+    });
+
+    if (existing) {
+        return;
+    }
+
+    const [, debit] = await repository.save([
+        repository.create({
+            userId: customer.id,
+            type: WalletTransactionType.Credit,
+            reason: WalletTransactionReason.AdminDeposit,
+            amount: '5000.00',
+            balanceBefore: '0.00',
+            balanceAfter: '5000.00',
+            performedByUserId: admin.id,
+            note: 'seed-wallet-credit',
+        }),
+        repository.create({
+            userId: customer.id,
+            type: WalletTransactionType.Debit,
+            reason: WalletTransactionReason.CheckoutPayment,
+            amount: seedOrder.totalAmount,
+            balanceBefore: '5000.00',
+            balanceAfter: customer.balance,
+            referenceId: seedOrder.id,
+            performedByUserId: customer.id,
+            note: 'seed-checkout-payment',
+        }),
+    ]);
+
+    seedOrder.walletTransactionId = debit.id;
+    await repository.manager.getRepository(Order).save(seedOrder);
+}
+
 async function clearSeedCarts(repository: Repository<CartItem>, users: User[]) {
     for (const user of users) {
         await repository.delete({ userId: user.id });
     }
+}
+
+async function clearDatabase(dataSource: DataSource) {
+    await dataSource.query(`
+    TRUNCATE TABLE
+        order_items,
+        orders,
+        cart_items,
+        wallet_transactions,
+        inventory_logs,
+        sales_summary,
+        products,
+        users
+    RESTART IDENTITY CASCADE;
+`);
 }
 
 async function seed() {
@@ -206,12 +278,16 @@ async function seed() {
     await dataSource.initialize();
 
     try {
+        await clearDatabase(dataSource);
+
         const userRepository = dataSource.getRepository(User);
         const productRepository = dataSource.getRepository(Product);
         const cartRepository = dataSource.getRepository(CartItem);
         const orderRepository = dataSource.getRepository(Order);
         const itemRepository = dataSource.getRepository(OrderItem);
         const logRepository = dataSource.getRepository(InventoryLog);
+        const walletTransactionRepository =
+            dataSource.getRepository(WalletTransaction);
 
         const superadmin = await upsertUser(
             userRepository,
@@ -227,11 +303,13 @@ async function seed() {
             userRepository,
             'customer@example.com',
             UserRole.Customer,
+            '4500.02',
         );
         const secondCustomer = await upsertUser(
             userRepository,
             'customer2@example.com',
             UserRole.Customer,
+            '1000.00',
         );
 
         await clearSeedCarts(cartRepository, [customer, secondCustomer]);
@@ -255,6 +333,12 @@ async function seed() {
             itemRepository,
             customer,
             batchProduct,
+        );
+        await seedWalletTransactions(
+            walletTransactionRepository,
+            admin,
+            customer,
+            seedOrder,
         );
         await seedInventoryLog(logRepository, admin, lowStockProduct);
 

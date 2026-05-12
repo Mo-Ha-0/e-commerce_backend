@@ -1,0 +1,35 @@
+config:
+    target: 'http://localhost:3000'
+    phases:
+        - duration: 1
+          arrivalCount: 50
+
+    payload:
+        path: './users.csv'
+        fields:
+            - 'email'
+            - 'password'
+        order: sequence
+
+scenarios:
+    - name: 'Race condition checkout'
+      flow:
+          # Step 1: Login
+          - post:
+                url: '/auth/login'
+                json:
+                    email: '{{ email }}'
+                    password: '{{ password }}'
+                capture:
+                    - json: '$.accessToken'
+                      as: 'token'
+
+          # Step 2: Checkout
+          - post:
+                url: '/orders'
+                headers:
+                    Authorization: 'Bearer {{ token }}'
+                expect:
+                    - statusCode:
+                          - 201
+                          - 400

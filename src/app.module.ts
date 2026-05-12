@@ -12,11 +12,13 @@ import { OrderItem } from './database/entities/order-item.entity';
 import { Order } from './database/entities/order.entity';
 import { Product } from './database/entities/product.entity';
 import { SalesSummary } from './database/entities/sales-summary.entity';
+import { WalletTransaction } from './database/entities/wallet-transaction.entity';
 import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
 import { CartModule } from './cart/cart.module';
 import { OrdersModule } from './orders/orders.module';
 import { InventoryModule } from './inventory/inventory.module';
+import { WalletModule } from './wallet/wallet.module';
 
 @Module({
     imports: [
@@ -45,6 +47,7 @@ import { InventoryModule } from './inventory/inventory.module';
                     OrderItem,
                     InventoryLog,
                     SalesSummary,
+                    WalletTransaction,
                 ],
                 synchronize:
                     config.get<string>('TYPEORM_SYNC', 'true') === 'true',
@@ -59,12 +62,13 @@ import { InventoryModule } from './inventory/inventory.module';
         CartModule,
         OrdersModule,
         InventoryModule,
+        WalletModule,
     ],
     providers: [
-        {
-            provide: APP_GUARD,
-            useClass: ThrottlerGuard,
-        },
+        // {
+        //     provide: APP_GUARD,
+        //     useClass: ThrottlerGuard,
+        // },
     ],
 })
 export class AppModule {}
