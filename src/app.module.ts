@@ -1,9 +1,8 @@
 import { Module } from '@nestjs/common';
-import { AppController } from './app.controller';
-import { AppService } from './app.service';
+import { APP_GUARD } from '@nestjs/core';
 import { AuthModule } from './auth/auth.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { User } from './database/entities/user.entity';
@@ -13,7 +12,13 @@ import { OrderItem } from './database/entities/order-item.entity';
 import { Order } from './database/entities/order.entity';
 import { Product } from './database/entities/product.entity';
 import { SalesSummary } from './database/entities/sales-summary.entity';
+import { WalletTransaction } from './database/entities/wallet-transaction.entity';
 import { UsersModule } from './users/users.module';
+import { ProductsModule } from './products/products.module';
+import { CartModule } from './cart/cart.module';
+import { OrdersModule } from './orders/orders.module';
+import { InventoryModule } from './inventory/inventory.module';
+import { WalletModule } from './wallet/wallet.module';
 
 @Module({
     imports: [
@@ -42,6 +47,7 @@ import { UsersModule } from './users/users.module';
                     OrderItem,
                     InventoryLog,
                     SalesSummary,
+                    WalletTransaction,
                 ],
                 synchronize:
                     config.get<string>('TYPEORM_SYNC', 'true') === 'true',
@@ -52,8 +58,17 @@ import { UsersModule } from './users/users.module';
         }),
         AuthModule,
         UsersModule,
+        ProductsModule,
+        CartModule,
+        OrdersModule,
+        InventoryModule,
+        WalletModule,
     ],
-    controllers: [AppController],
-    providers: [AppService],
+    providers: [
+        // {
+        //     provide: APP_GUARD,
+        //     useClass: ThrottlerGuard,
+        // },
+    ],
 })
 export class AppModule {}
