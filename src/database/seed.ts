@@ -301,7 +301,7 @@ async function seed() {
         );
         const customer = await upsertUser(
             userRepository,
-            'customer@example.com',
+            'hamadmohamad937@gmail.com',
             UserRole.Customer,
             '4500.02',
         );

@@ -5,6 +5,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { BullModule } from '@nestjs/bullmq';
 import { User } from './database/entities/user.entity';
 import { CartItem } from './database/entities/cart-item.entity';
 import { InventoryLog } from './database/entities/inventory-log.entity';
@@ -30,6 +31,15 @@ import { WalletModule } from './wallet/wallet.module';
             },
         ]),
         ScheduleModule.forRoot(),
+        BullModule.forRootAsync({
+            inject: [ConfigService],
+            useFactory: (config: ConfigService) => ({
+                connection: {
+                    host: config.get<string>('REDIS_HOST', 'localhost'),
+                    port: Number(config.get<string>('REDIS_PORT', '6379')),
+                },
+            }),
+        }),
         TypeOrmModule.forRootAsync({
             inject: [ConfigService],
             useFactory: (config: ConfigService) => ({

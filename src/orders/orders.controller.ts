@@ -6,17 +6,21 @@ import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { UserRole } from '../database/entities/user.entity';
+import { CheckoutFacade } from './facades/checkout.facade';
 import { OrdersService } from './orders.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('orders')
 export class OrdersController {
-    constructor(private readonly ordersService: OrdersService) {}
+    constructor(
+        private readonly ordersService: OrdersService,
+        private readonly checkoutFacade: CheckoutFacade,
+    ) {}
 
     @Throttle({ default: { limit: 20, ttl: 60000 } })
     @Post()
     checkout(@CurrentUser() user: JwtUser) {
-        return this.ordersService.checkout(user.userId);
+        return this.checkoutFacade.checkout(user.userId);
     }
 
     @Get()

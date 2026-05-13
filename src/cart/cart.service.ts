@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { CartItem } from '../database/entities/cart-item.entity';
 import { Product } from '../database/entities/product.entity';
+import { StockValidationService } from '../inventory/services/stock-validation.service';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 
@@ -19,6 +20,7 @@ export class CartService {
         private readonly cartRepository: Repository<CartItem>,
         @InjectRepository(Product)
         private readonly productsRepository: Repository<Product>,
+        private readonly stockValidationService: StockValidationService,
     ) {}
 
     findCart(userId: string) {
@@ -38,13 +40,15 @@ export class CartService {
             throw new NotFoundException('Product not found');
         }
 
-        if (product.stock < dto.quantity) {
-            throw new BadRequestException('Insufficient product stock');
-        }
-
         let cartItem = await this.cartRepository.findOne({
             where: { userId, productId: dto.productId },
         });
+
+        const requestedQuantity = (cartItem?.quantity ?? 0) + dto.quantity;
+        await this.stockValidationService.validateProductStock(
+            dto.productId,
+            requestedQuantity,
+        );
 
         if (!cartItem) {
             const count = await this.cartRepository.count({
@@ -89,9 +93,10 @@ export class CartService {
             throw new NotFoundException('Product not found');
         }
 
-        if (product.stock < dto.quantity) {
-            throw new BadRequestException('Insufficient product stock');
-        }
+        await this.stockValidationService.validateProductStock(
+            productId,
+            dto.quantity,
+        );
 
         item.quantity = dto.quantity;
         await this.cartRepository.save(item);
