@@ -20,6 +20,7 @@ import { CartModule } from './cart/cart.module';
 import { OrdersModule } from './orders/orders.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { WalletModule } from './wallet/wallet.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
     imports: [
@@ -73,12 +74,13 @@ import { WalletModule } from './wallet/wallet.module';
         OrdersModule,
         InventoryModule,
         WalletModule,
+        HealthModule,
     ],
     providers: [
-        // {
-        //     provide: APP_GUARD,
-        //     useClass: ThrottlerGuard,
-        // },
+        {
+            provide: APP_GUARD,
+            useClass: ThrottlerGuard,
+        },
     ],
 })
 export class AppModule {}
