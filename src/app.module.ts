@@ -13,6 +13,7 @@ import { OrderItem } from './database/entities/order-item.entity';
 import { Order } from './database/entities/order.entity';
 import { Product } from './database/entities/product.entity';
 import { SalesSummary } from './database/entities/sales-summary.entity';
+import { JobLog } from './database/entities/job-log.entity';
 import { WalletTransaction } from './database/entities/wallet-transaction.entity';
 import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
@@ -20,6 +21,7 @@ import { CartModule } from './cart/cart.module';
 import { OrdersModule } from './orders/orders.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { WalletModule } from './wallet/wallet.module';
+import { SalesModule } from './sales/sales.module';
 
 @Module({
     imports: [
@@ -40,7 +42,7 @@ import { WalletModule } from './wallet/wallet.module';
                 },
             }),
         }),
-        TypeOrmModule.forRootAsync({
+    TypeOrmModule.forRootAsync({
             inject: [ConfigService],
             useFactory: (config: ConfigService) => ({
                 type: 'postgres',
@@ -56,7 +58,8 @@ import { WalletModule } from './wallet/wallet.module';
                     Order,
                     OrderItem,
                     InventoryLog,
-                    SalesSummary,
+            SalesSummary,
+            JobLog,
                     WalletTransaction,
                 ],
                 synchronize:
@@ -73,6 +76,7 @@ import { WalletModule } from './wallet/wallet.module';
         OrdersModule,
         InventoryModule,
         WalletModule,
+    SalesModule,
     ],
     providers: [
         // {
