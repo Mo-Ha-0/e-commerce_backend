@@ -77,10 +77,10 @@ import { HealthModule } from './health/health.module';
         HealthModule,
     ],
     providers: [
-        {
-            provide: APP_GUARD,
-            useClass: ThrottlerGuard,
-        },
+        // {
+        //     provide: APP_GUARD,
+        //     useClass: ThrottlerGuard,
+        // },
     ],
 })
 export class AppModule {}

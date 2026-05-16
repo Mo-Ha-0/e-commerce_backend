@@ -5,11 +5,20 @@ services:
         environment:
             PORT: 3000
         depends_on:
-            - postgres
-            - redis
+            postgres:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            minio:
+                condition: service_healthy
         restart: unless-stopped
+        healthcheck:
+            test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3000/health']
+            interval: 10s
+            timeout: 5s
+            retries: 3
+            start_period: 15s
         deploy:
-            replicas: 3
             resources:
                 limits:
                     cpus: '1.00'
@@ -25,14 +34,15 @@ services:
         volumes:
             - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
         depends_on:
-            - app
+            app:
+                condition: service_healthy
         restart: unless-stopped
-        # healthcheck:
-        #     test: ['CMD', 'wget', '-qO-', 'http://localhost/health']
-        #     interval: 15s
-        #     timeout: 5s
-        #     retries: 3
-        #     start_period: 10s
+        healthcheck:
+            test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:8080/health']
+            interval: 15s
+            timeout: 5s
+            retries: 3
+            start_period: 10s
 
     postgres:
         image: postgres:15-alpine
@@ -44,6 +54,29 @@ services:
             - '5433:5432'
         volumes:
             - postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ['CMD-SHELL', 'pg_isready -U mrmohammed -d ecommerce_database_for_the_legends_of_the_workd']
+            interval: 10s
+            timeout: 5s
+            retries: 5
+            start_period: 10s
+
+    minio:
+        image: minio/minio:latest
+        ports:
+            - '9000:9000'
+            - '9001:9001'
+        environment:
+            MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+            MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+        volumes:
+            - minio_data:/data
+        command: server /data --console-address ":9001"
+        healthcheck:
+            test: ['CMD', 'mc', 'ready', 'local']
+            interval: 10s
+            timeout: 5s
+            retries: 5
 
     redis:
         image: redis:8.4-alpine
@@ -53,10 +86,11 @@ services:
             - redis_data:/data
         healthcheck:
             test: ['CMD', 'redis-cli', 'ping']
-            interval: 60s
+            interval: 10s
             timeout: 5s
             retries: 5
 
 volumes:
     postgres_data:
     redis_data:
+    minio_data:

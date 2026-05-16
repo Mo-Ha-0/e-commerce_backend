@@ -3,8 +3,8 @@ const { execSync } = require('child_process');
 const CONFIG = {
     minInstances: 3,
     maxInstances: 8,
-    checkIntervalMs: 8000,
-    cooldownMs: 30000,
+    checkIntervalMs: 15000,
+    cooldownMs: 45000,
 
     cpuLimit: 1.0,
     cpuScaleUpThreshold: 70,
@@ -18,7 +18,6 @@ const CONFIG = {
 const RAM_UP_MB = CONFIG.ramLimitMB * (CONFIG.ramScaleUpPercent / 100);
 const RAM_DOWN_MB = CONFIG.ramLimitMB * (CONFIG.ramScaleDownPercent / 100);
 
-let currentInstances = CONFIG.minInstances;
 let lastScaleTime = 0;
 
 function parseMemoryMB(str) {
@@ -43,6 +42,17 @@ function parseMemoryMB(str) {
         default:
             return 0;
     }
+}
+
+function getCurrentInstanceCount() {
+    const output = execSync('docker compose ps --format json app', {
+        encoding: 'utf8',
+    }).trim();
+
+    if (!output) return 0;
+
+    const lines = output.split('\n').filter(Boolean);
+    return lines.length;
 }
 
 function getStats() {
@@ -82,13 +92,11 @@ function getStats() {
 }
 
 function scale(target, reason) {
-    console.log(
-        `\n⚡ Scaling: ${currentInstances} → ${target}  [reason: ${reason}]`,
-    );
+    const current = getCurrentInstanceCount();
+    console.log(`\n⚡ Scaling: ${current} → ${target}  [reason: ${reason}]`);
     execSync(`docker compose up --scale app=${target} -d --no-recreate`, {
         stdio: 'inherit',
     });
-    currentInstances = target;
     lastScaleTime = Date.now();
     console.log(`✅ Now running ${target} instances\n`);
 }
@@ -96,6 +104,7 @@ function scale(target, reason) {
 function tick() {
     try {
         const { avgCpu, avgRamMB, count } = getStats();
+        const currentInstances = count || getCurrentInstanceCount();
         const ramPercent = parseFloat(
             ((avgRamMB / CONFIG.ramLimitMB) * 100).toFixed(1),
         );
@@ -109,7 +118,7 @@ function tick() {
 
         console.log(
             `[${new Date().toLocaleTimeString()}]` +
-                `  Instances: ${count}` +
+                `  Instances: ${currentInstances}` +
                 `  │  CPU: ${avgCpu}% (limit ${CONFIG.cpuLimit * 100}%, threshold ${CONFIG.cpuScaleUpThreshold}%)` +
                 `  │  RAM: ${avgRamMB}MB / ${CONFIG.ramLimitMB}MB (${ramPercent}%, threshold ${CONFIG.ramScaleUpPercent}%)` +
                 (inCooldown ? `  │  Cooldown: ${cooldownLeft}s` : ''),
@@ -148,8 +157,7 @@ function tick() {
     }
 }
 
-// ✅ Fix
-console.log('🚀 Auto-scaler started\n');
+console.log(' Auto-scaler started 😂\n');
 console.log(
     `   Instances : min ${CONFIG.minInstances} → max ${CONFIG.maxInstances}`,
 );

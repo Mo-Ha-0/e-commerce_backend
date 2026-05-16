@@ -1,12 +1,9 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Queue } from 'bullmq';
-import { createWriteStream } from 'fs';
-import { mkdir } from 'fs/promises';
-import { join } from 'path';
 import PDFDocument from 'pdfkit';
+import { Readable } from 'stream';
 import { Repository } from 'typeorm';
 import { Order, PaymentStatus } from '../database/entities/order.entity';
 import {
@@ -15,6 +12,7 @@ import {
     INVOICE_QUEUE,
 } from '../queues/queue.constants';
 import type { OrderJobData } from '../queues/queue.types';
+import { MinioService } from '../minio/minio.service';
 
 @Injectable()
 export class InvoicePdfService {
@@ -25,7 +23,7 @@ export class InvoicePdfService {
         private readonly invoiceQueue: Queue<OrderJobData>,
         @InjectRepository(Order)
         private readonly ordersRepository: Repository<Order>,
-        private readonly configService: ConfigService,
+        private readonly minioService: MinioService,
     ) {}
 
     async enqueueInvoiceGeneration(orderId: string) {
@@ -54,31 +52,37 @@ export class InvoicePdfService {
             return;
         }
 
-        const storageDir = this.configService.get<string>(
-            'INVOICE_STORAGE_DIR',
-            'storage/invoices',
-        );
-        await mkdir(storageDir, { recursive: true });
+        const key = `invoices/invoice-${order.id}.pdf`;
+        const pdfBuffer = await this.generatePdfBuffer(order);
 
-        const filePath = join(storageDir, `invoice-${order.id}.pdf`);
-        await this.writePdf(filePath, order);
+        await this.minioService.uploadFile(key, pdfBuffer, 'application/pdf');
 
-        order.invoicePdfPath = filePath;
+        order.invoicePdfPath = key;
         await this.ordersRepository.save(order);
 
-        return filePath;
+        return key;
     }
 
-    private writePdf(filePath: string, order: Order) {
-        return new Promise<void>((resolve, reject) => {
-            const doc = new PDFDocument({ margin: 50 });
-            const stream = createWriteStream(filePath);
+    async getPdfStream(key: string) {
+        const response = await this.minioService.getFile(key);
+        if (!response.Body) {
+            throw new NotFoundException('Invoice PDF not found');
+        }
+        return {
+            stream: response.Body as Readable,
+            contentType: response.ContentType ?? 'application/pdf',
+        };
+    }
 
-            stream.on('finish', resolve);
-            stream.on('error', reject);
+    private generatePdfBuffer(order: Order): Promise<Buffer> {
+        return new Promise<Buffer>((resolve, reject) => {
+            const doc = new PDFDocument({ margin: 50 });
+            const chunks: Buffer[] = [];
+
+            doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+            doc.on('end', () => resolve(Buffer.concat(chunks)));
             doc.on('error', reject);
 
-            doc.pipe(stream);
             doc.fontSize(20).text('Invoice', { align: 'center' });
             doc.moveDown();
             doc.fontSize(12).text(`Order ID: ${order.id}`);
