@@ -148,13 +148,14 @@ function tick() {
     }
 }
 
+// ✅ Fix
 console.log('🚀 Auto-scaler started\n');
 console.log(
     `   Instances : min ${CONFIG.minInstances} → max ${CONFIG.maxInstances}`,
 );
-console.log(`   CPU limit : 0.50 cores per instance`);
+console.log(`   CPU limit : ${CONFIG.cpuLimit} cores per instance`);
 console.log(
-    `   CPU up    : avg > ${CONFIG.cpuScaleUpThreshold}%  (= 0.40 cores)`,
+    `   CPU up    : avg > ${CONFIG.cpuScaleUpThreshold}%  (= ${CONFIG.cpuLimit * (CONFIG.cpuScaleUpThreshold / 100)} cores)`,
 );
 console.log(`   CPU down  : avg < ${CONFIG.cpuScaleDownThreshold}%`);
 console.log(`   RAM limit : ${CONFIG.ramLimitMB}MB per instance`);
