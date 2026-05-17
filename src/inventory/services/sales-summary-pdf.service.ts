@@ -23,7 +23,8 @@ export class SalesSummaryPdfService {
 
     async generateAndUploadForMonth(year: number, month: number) {
         const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-        const endDate = `${year}-${String(month).padStart(2, '0')}-31`;
+        const lastDay = new Date(year, month, 0).getDate();
+        const endDate = `${year}-${String(month).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 
         const summaries = await this.salesSummaryRepository.find({
             where: { summaryDate: Between(startDate, endDate) },

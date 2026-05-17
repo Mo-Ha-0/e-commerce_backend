@@ -95,6 +95,7 @@ export class BatchSummaryService {
                 totalChunks,
                 startDate: startDate.toISOString(),
                 endDate: endDate.toISOString(),
+                periodLabel: label,
             });
         }
 
@@ -121,7 +122,8 @@ export class BatchSummaryService {
         };
     }
 
-    @Cron(CronExpression.EVERY_MINUTE)
+    // @Cron(CronExpression.EVERY_MINUTE)
+    @Cron('0 2 1 * *')
     async handleScheduledBatchSummary() {
         this.logger.log(
             'Monthly batch summary triggered (1st of month at 2:00 AM)',

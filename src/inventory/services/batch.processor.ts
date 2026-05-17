@@ -46,7 +46,7 @@ export class BatchProcessor extends WorkerHost {
     }
 
     private async checkAndGeneratePdf(jobData: BatchSummaryJobData) {
-        const periodLabel = jobData.startDate.substring(0, 7);
+        const periodLabel = jobData.periodLabel;
         const lockKey = periodLabel;
 
         if (this.pdfGenerationLock.has(lockKey)) {
@@ -72,10 +72,11 @@ export class BatchProcessor extends WorkerHost {
             );
 
             try {
+                const [year, month] = periodLabel.split('-').map(Number);
                 const key =
                     await this.salesSummaryPdfService.generateAndUploadForMonth(
-                        Number(jobData.startDate.substring(0, 4)),
-                        Number(jobData.startDate.substring(5, 7)),
+                        year,
+                        month,
                     );
 
                 if (key) {

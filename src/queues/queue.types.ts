@@ -17,4 +17,5 @@ export interface BatchSummaryJobData {
     totalChunks: number;
     startDate: string;
     endDate: string;
+    periodLabel: string;
 }
