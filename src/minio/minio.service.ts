@@ -6,6 +6,7 @@ import {
     HeadBucketCommand,
     PutObjectCommand,
     GetObjectCommand,
+    ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 
 @Injectable()
@@ -86,6 +87,18 @@ export class MinioService implements OnModuleInit {
             }),
         );
         return response;
+    }
+
+    async listFiles(prefix: string) {
+        const response = await this.client.send(
+            new ListObjectsV2Command({
+                Bucket: this.bucket,
+                Prefix: prefix,
+            }),
+        );
+        return (response.Contents ?? [])
+            .map((obj) => obj.Key)
+            .filter(Boolean) as string[];
     }
 
     getBucket() {

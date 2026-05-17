@@ -258,6 +258,88 @@ async function clearSeedCarts(repository: Repository<CartItem>, users: User[]) {
     }
 }
 
+async function seedBatchOrders(
+    orderRepository: Repository<Order>,
+    itemRepository: Repository<OrderItem>,
+    walletRepository: Repository<WalletTransaction>,
+    customers: User[],
+    products: Product[],
+) {
+    console.log('Seeding batch orders for April 2025 (month 4)...');
+
+    const targetYear = 2026;
+    const targetMonth = 4;
+    const monthStart = new Date(targetYear, targetMonth - 1, 1);
+    const monthEnd = new Date(targetYear, targetMonth, 1);
+    const daysInMonth = Math.floor(
+        (monthEnd.getTime() - monthStart.getTime()) / (1000 * 60 * 60 * 24),
+    );
+
+    let totalCreated = 0;
+
+    for (let day = 0; day < daysInMonth; day++) {
+        const ordersPerDay = 5 + Math.floor(Math.random() * 10);
+
+        for (let i = 0; i < ordersPerDay; i++) {
+            const customer =
+                customers[Math.floor(Math.random() * customers.length)];
+            const orderDate = new Date(monthStart);
+            orderDate.setDate(orderDate.getDate() + day);
+            orderDate.setHours(
+                Math.floor(Math.random() * 24),
+                Math.floor(Math.random() * 60),
+                0,
+                0,
+            );
+
+            const itemsCount = 1 + Math.floor(Math.random() * 3);
+            const selectedProducts: Product[] = [];
+            const shuffled = [...products].sort(() => Math.random() - 0.5);
+            for (let j = 0; j < Math.min(itemsCount, shuffled.length); j++) {
+                selectedProducts.push(shuffled[j]);
+            }
+
+            let totalAmount = 0;
+            const orderItems: Partial<OrderItem>[] = [];
+
+            for (const product of selectedProducts) {
+                const quantity = 1 + Math.floor(Math.random() * 5);
+                const price = Number(product.price);
+                totalAmount += price * quantity;
+
+                orderItems.push({
+                    productId: product.id,
+                    quantity,
+                    priceAtTime: product.price,
+                });
+            }
+
+            const order = await orderRepository.save(
+                orderRepository.create({
+                    userId: customer.id,
+                    totalAmount: totalAmount.toFixed(2),
+                    status: OrderStatus.Completed,
+                    paymentStatus: PaymentStatus.Paid,
+                    paidAt: orderDate,
+                    createdAt: orderDate,
+                }),
+            );
+
+            const savedItems = orderItems.map((item) =>
+                itemRepository.create({
+                    ...item,
+                    orderId: order.id,
+                }),
+            );
+            await itemRepository.save(savedItems);
+
+            totalCreated++;
+        }
+    }
+
+    console.log(`Created ${totalCreated} orders for April 2025`);
+}
+
 async function clearDatabase(dataSource: DataSource) {
     await dataSource.query(`
     TRUNCATE TABLE
@@ -341,6 +423,18 @@ async function seed() {
             seedOrder,
         );
         await seedInventoryLog(logRepository, admin, lowStockProduct);
+
+        await seedBatchOrders(
+            orderRepository,
+            itemRepository,
+            walletTransactionRepository,
+            [customer, secondCustomer],
+            products.filter(
+                (p) =>
+                    p.name !== 'Seed Race Condition Product' &&
+                    p.name !== 'Seed Wireless Mouse',
+            ),
+        );
 
         console.log('Seed completed successfully.');
         console.log('');
