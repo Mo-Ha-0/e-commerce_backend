@@ -30,4 +30,12 @@ export class DistributedLockService implements OnModuleDestroy {
     async release(key: string): Promise<void> {
         await this.redis.del(key);
     }
+
+    async increment(key: string, ttlMs: number): Promise<number> {
+        const count = await this.redis.incr(key);
+        if (count === 1) {
+            await this.redis.pexpire(key, ttlMs);
+        }
+        return count;
+    }
 }

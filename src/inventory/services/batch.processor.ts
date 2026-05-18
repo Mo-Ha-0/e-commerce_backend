@@ -6,20 +6,23 @@ import {
     PROCESS_BATCH_SUMMARY_JOB,
 } from '../../queues/queue.constants';
 import type { BatchSummaryJobData } from '../../queues/queue.types';
+import { DistributedLockService } from '../../common/distributed-lock.service';
 import { BatchSummaryService } from './batch-summary.service';
 import { SalesSummaryPdfService } from './sales-summary-pdf.service';
+
+const CHUNK_COUNTER_TTL_MS = 60 * 60 * 1000;
+const PDF_LOCK_TTL_MS = 10 * 60 * 1000;
 
 @Processor(BATCH_SUMMARY_QUEUE, {
     concurrency: 3,
 })
 export class BatchProcessor extends WorkerHost {
     private readonly logger = new Logger(BatchProcessor.name);
-    private completedChunks = new Map<string, number>();
-    private pdfGenerationLock = new Set<string>();
 
     constructor(
         private readonly batchSummaryService: BatchSummaryService,
         private readonly salesSummaryPdfService: SalesSummaryPdfService,
+        private readonly distributedLock: DistributedLockService,
     ) {
         super();
     }
@@ -46,52 +49,59 @@ export class BatchProcessor extends WorkerHost {
     }
 
     private async checkAndGeneratePdf(jobData: BatchSummaryJobData) {
-        const periodLabel = jobData.periodLabel;
-        const lockKey = periodLabel;
+        const { periodLabel, totalChunks } = jobData;
 
-        if (this.pdfGenerationLock.has(lockKey)) {
+        const counterKey = `batch-chunks-done:${periodLabel}`;
+        const totalDone = await this.distributedLock.increment(
+            counterKey,
+            CHUNK_COUNTER_TTL_MS,
+        );
+
+        this.logger.log(
+            `Chunk ${jobData.chunkIndex + 1} done. ${totalDone}/${totalChunks} chunks completed for ${periodLabel}`,
+        );
+
+        if (totalDone < totalChunks) {
+            return;
+        }
+
+        const pdfLockKey = `batch-pdf-lock:${periodLabel}`;
+        const acquired = await this.distributedLock.acquire(
+            pdfLockKey,
+            PDF_LOCK_TTL_MS,
+        );
+
+        if (!acquired) {
             this.logger.log(
-                `PDF already generated for ${periodLabel}, skipping`,
+                `PDF generation already claimed by another instance for ${periodLabel}, skipping`,
             );
             return;
         }
 
-        const current = this.completedChunks.get(lockKey) ?? 0;
-        this.completedChunks.set(lockKey, current + 1);
-        const totalDone = current + 1;
-
         this.logger.log(
-            `Chunk ${jobData.chunkIndex + 1} done. ${totalDone}/${jobData.totalChunks} chunks completed for ${periodLabel}`,
+            `All ${totalChunks} chunks completed for ${periodLabel}. Generating monthly PDF...`,
         );
 
-        if (totalDone >= jobData.totalChunks) {
-            this.pdfGenerationLock.add(lockKey);
+        try {
+            const [year, month] = periodLabel.split('-').map(Number);
+            const key =
+                await this.salesSummaryPdfService.generateAndUploadForMonth(
+                    year,
+                    month,
+                );
 
-            this.logger.log(
-                `All ${jobData.totalChunks} chunks completed for ${periodLabel}. Generating monthly PDF...`,
-            );
-
-            try {
-                const [year, month] = periodLabel.split('-').map(Number);
-                const key =
-                    await this.salesSummaryPdfService.generateAndUploadForMonth(
-                        year,
-                        month,
-                    );
-
-                if (key) {
-                    this.logger.log(`Monthly PDF generated: ${key}`);
-                } else {
-                    this.logger.warn(
-                        `No summaries found for ${periodLabel}, PDF skipped`,
-                    );
-                }
-            } catch (err) {
-                this.pdfGenerationLock.delete(lockKey);
-                this.logger.error(
-                    `Failed to generate monthly PDF: ${err.message}`,
+            if (key) {
+                this.logger.log(`Monthly PDF generated: ${key}`);
+            } else {
+                this.logger.warn(
+                    `No summaries found for ${periodLabel}, PDF skipped`,
                 );
             }
+        } catch (err) {
+            await this.distributedLock.release(pdfLockKey);
+            this.logger.error(
+                `Failed to generate monthly PDF for ${periodLabel}: ${err instanceof Error ? err.message : String(err)}`,
+            );
         }
     }
 }
