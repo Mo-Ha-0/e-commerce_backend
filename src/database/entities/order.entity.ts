@@ -51,6 +51,9 @@ export class Order {
     @Column({ type: 'uuid', nullable: true })
     walletTransactionId?: string;
 
+    @Column({ type: 'varchar', length: 500, nullable: true })
+    invoicePdfPath?: string;
+
     @ManyToOne(() => WalletTransaction, { nullable: true })
     @JoinColumn({ name: 'walletTransactionId' })
     walletTransaction?: WalletTransaction;
