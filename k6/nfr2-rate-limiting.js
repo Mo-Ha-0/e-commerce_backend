@@ -18,7 +18,7 @@ export const options = {
 export default function () {
     console.log('Sending 10 rapid login requests from same IP...\n');
 
-    for (let i = 1; i <= 10; i++) {
+    for (let i = 1; i <= 30; i++) {
         const res = http.post(
             `${BASE_URL}/auth/login`,
             JSON.stringify({
@@ -28,7 +28,8 @@ export default function () {
             { headers: { 'Content-Type': 'application/json' } },
         );
 
-        const isAllowed = res.status === 200 || res.status === 401;
+        const isAllowed =
+            res.status === 200 || res.status === 201 || res.status === 401;
         const isBlocked = res.status === 429;
 
         if (isAllowed) allowed.add(1);
