@@ -5,6 +5,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import type { Queue } from 'bullmq';
 import { Between, Repository } from 'typeorm';
+import { DistributedLockService } from '../../common/distributed-lock.service';
 import {
     Order,
     OrderStatus,
@@ -19,6 +20,8 @@ import {
 import type { BatchSummaryJobData } from '../../queues/queue.types';
 
 const BATCH_CHUNK_SIZE = 100;
+const CRON_LOCK_KEY = 'cron:batch-summary';
+const CRON_LOCK_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 @Injectable()
 export class BatchSummaryService {
@@ -31,6 +34,7 @@ export class BatchSummaryService {
         private readonly ordersRepository: Repository<Order>,
         @InjectRepository(SalesSummary)
         private readonly salesSummaryRepository: Repository<SalesSummary>,
+        private readonly distributedLock: DistributedLockService,
     ) {}
 
     getQueue(): Queue<BatchSummaryJobData> {
@@ -125,10 +129,23 @@ export class BatchSummaryService {
     // @Cron(CronExpression.EVERY_MINUTE)
     @Cron('0 2 1 * *')
     async handleScheduledBatchSummary() {
-        this.logger.log(
-            'Monthly batch summary triggered (1st of month at 2:00 AM)',
+        const acquired = await this.distributedLock.acquire(
+            CRON_LOCK_KEY,
+            CRON_LOCK_TTL_MS,
         );
-        return this.enqueueBatchSummary();
+        if (!acquired) {
+            this.logger.log('Another instance holds the cron lock, skipping');
+            return;
+        }
+
+        try {
+            this.logger.log(
+                'Monthly batch summary triggered (1st of month at 2:00 AM)',
+            );
+            return await this.enqueueBatchSummary();
+        } finally {
+            await this.distributedLock.release(CRON_LOCK_KEY);
+        }
     }
 
     async processChunk(jobData: BatchSummaryJobData) {
