@@ -13,7 +13,15 @@ services:
                 condition: service_healthy
         restart: unless-stopped
         healthcheck:
-            test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:3000/health']
+            test:
+                [
+                    'CMD',
+                    'wget',
+                    '--no-verbose',
+                    '--tries=1',
+                    '--spider',
+                    'http://localhost:3000/health',
+                ]
             interval: 10s
             timeout: 5s
             retries: 3
@@ -38,7 +46,15 @@ services:
                 condition: service_healthy
         restart: unless-stopped
         healthcheck:
-            test: ['CMD', 'wget', '--no-verbose', '--tries=1', '--spider', 'http://localhost:8080/health']
+            test:
+                [
+                    'CMD',
+                    'wget',
+                    '--no-verbose',
+                    '--tries=1',
+                    '--spider',
+                    'http://localhost:8080/health',
+                ]
             interval: 15s
             timeout: 5s
             retries: 3
@@ -55,7 +71,11 @@ services:
         volumes:
             - postgres_data:/var/lib/postgresql/data
         healthcheck:
-            test: ['CMD-SHELL', 'pg_isready -U mrmohammed -d ecommerce_database_for_the_legends_of_the_workd']
+            test:
+                [
+                    'CMD-SHELL',
+                    'pg_isready -U mrmohammed -d ecommerce_database_for_the_legends_of_the_workd',
+                ]
             interval: 10s
             timeout: 5s
             retries: 5
@@ -90,7 +110,38 @@ services:
             timeout: 5s
             retries: 5
 
+    prometheus:
+        image: prom/prometheus:latest
+        ports:
+            - '9090:9090'
+        volumes:
+            - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+            - prometheus_data:/prometheus
+        depends_on:
+            app:
+                condition: service_healthy
+        restart: unless-stopped
+
+    grafana:
+        image: grafana/grafana:latest
+        ports:
+            - '3001:3000'
+        environment:
+            GF_SECURITY_ADMIN_USER: admin
+            GF_SECURITY_ADMIN_PASSWORD: admin
+        volumes:
+            - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
+            - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
+            - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+            - grafana_data:/var/lib/grafana
+        depends_on:
+            prometheus:
+                condition: service_started
+        restart: unless-stopped
+
 volumes:
     postgres_data:
     redis_data:
     minio_data:
+    prometheus_data:
+    grafana_data:

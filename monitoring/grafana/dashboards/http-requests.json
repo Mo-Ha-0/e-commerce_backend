@@ -1,0 +1,565 @@
+{
+  "annotations": { "list": [] },
+  "title": "ShopFlow - HTTP Request Monitoring",
+  "uid": "shopflow-http",
+  "editable": true,
+  "templating": {
+    "list": [
+      {
+        "name": "instance",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(http_requests_total, instance)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "current": { "text": "All", "value": "$__all" },
+        "sort": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 100,
+      "title": "--- Load Balancing Overview ---",
+      "type": "text",
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 0 },
+      "options": { "mode": "markdown", "content": "" }
+    },
+    {
+      "id": 50,
+      "title": "Requests Handled — Total",
+      "description": "Total requests handled by all instances",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(http_requests_total{instance=~\"$instance\"})",
+          "legendFormat": "Total"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "green" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }] }
+        }
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 2 }
+    },
+    {
+      "id": 51,
+      "title": "Requests — 2xx",
+      "description": "Total successful responses",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(http_requests_total{status_code=~\"2..\", instance=~\"$instance\"})",
+          "legendFormat": "2xx"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "blue" },
+          "thresholds": { "steps": [{ "color": "blue", "value": null }] }
+        }
+      },
+      "gridPos": { "h": 5, "w": 6, "x": 6, "y": 2 }
+    },
+    {
+      "id": 52,
+      "title": "Requests — Per Instance",
+      "description": "Total requests per instance",
+      "type": "bargauge",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(http_requests_total{instance=~\"$instance\"}) by (instance)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 500 }, { "color": "red", "value": 1000 }] }
+        }
+      },
+      "options": { "orientation": "horizontal", "displayMode": "gradient" },
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 2 }
+    },
+    {
+      "id": 60,
+      "title": "Request Details — Per Endpoint (Table)",
+      "description": "Endpoint path, HTTP method, average duration, total requests",
+      "type": "table",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(http_request_duration_seconds_count{instance=~\"$instance\"}) by (method, route)",
+          "legendFormat": "",
+          "instant": true,
+          "format": "table",
+          "refId": "A"
+        },
+        {
+          "expr": "sum(http_request_duration_seconds_sum{instance=~\"$instance\"}) by (method, route) / sum(http_request_duration_seconds_count{instance=~\"$instance\"}) by (method, route)",
+          "legendFormat": "",
+          "instant": true,
+          "format": "table",
+          "refId": "B"
+        },
+        {
+          "expr": "sum(http_request_duration_seconds_max{instance=~\"$instance\"}) by (method, route)",
+          "legendFormat": "",
+          "instant": true,
+          "format": "table",
+          "refId": "C"
+        }
+      ],
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": { "Time": true },
+            "renameByName": {
+              "method": "Method",
+              "route": "Path",
+              "Value #A": "Total Requests",
+              "Value #B": "Avg Duration (s)",
+              "Value #C": "Max Duration (s)"
+            }
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "Avg Duration (s)" },
+            "properties": [{ "id": "decimals", "value": 4 }, { "id": "unit", "value": "s" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "Max Duration (s)" },
+            "properties": [{ "id": "decimals", "value": 4 }, { "id": "unit", "value": "s" }]
+          }
+        ]
+      },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 7 }
+    },
+    {
+      "id": 101,
+      "title": "--- HTTP Request Charts ---",
+      "type": "text",
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 15 },
+      "options": { "mode": "markdown", "content": "" }
+    },
+    {
+      "id": 1,
+      "title": "Average Request Duration (by Route)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(http_request_duration_seconds_sum{instance=~\"$instance\"}[1m]) / rate(http_request_duration_seconds_count{instance=~\"$instance\"}[1m])",
+          "legendFormat": "{{method}} {{route}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": { "drawStyle": "line", "fillOpacity": 10, "pointSize": 5, "showPoints": "auto" }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 17 }
+    },
+    {
+      "id": 3,
+      "title": "Request Rate (req/s by instance)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{instance=~\"$instance\"}[1m])) by (instance)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "line", "fillOpacity": 15 }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 17 }
+    },
+    {
+      "id": 4,
+      "title": "HTTP Response Status Codes",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{instance=~\"$instance\"}[1m])) by (status_code)",
+          "legendFormat": "HTTP {{status_code}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": { "drawStyle": "bars", "fillOpacity": 50 }
+        }
+      },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 25 }
+    },
+    {
+      "id": 5,
+      "title": "Total Requests (by Route)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(http_requests_total{instance=~\"$instance\"}) by (route)",
+          "legendFormat": "{{route}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } },
+      "gridPos": { "h": 5, "w": 12, "x": 12, "y": 25 }
+    },
+    {
+      "id": 200,
+      "title": "--- Node.js Runtime (Live Numbers) ---",
+      "type": "text",
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 30 },
+      "options": { "mode": "markdown", "content": "" }
+    },
+    {
+      "id": 70,
+      "title": "Active Handles",
+      "description": "Total active libuv handles",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(nodejs_active_handles_total{instance=~\"$instance\"}) by (instance)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "green" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 50 }, { "color": "red", "value": 100 }] }
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 32 }
+    },
+    {
+      "id": 71,
+      "title": "Active Requests",
+      "description": "Active libuv requests",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(nodejs_active_requests_total{instance=~\"$instance\"}) by (instance)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "purple" }
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 32 }
+    },
+    {
+      "id": 72,
+      "title": "Heap Used",
+      "description": "V8 heap memory in use",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(nodejs_heap_size_used_bytes{instance=~\"$instance\"}) by (instance)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": { "mode": "fixed", "fixedColor": "orange" }
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 32 }
+    },
+    {
+      "id": 73,
+      "title": "Event Loop Lag (p99)",
+      "description": "99th percentile event loop delay",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(nodejs_eventloop_lag_p99_seconds{instance=~\"$instance\"}) by (instance)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "fixed", "fixedColor": "green" }
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 32 }
+    },
+    {
+      "id": 74,
+      "title": "Event Loop Lag (mean)",
+      "description": "Average event loop delay",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(nodejs_eventloop_lag_mean_seconds{instance=~\"$instance\"}) by (instance)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "fixed", "fixedColor": "yellow" }
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 16, "y": 32 }
+    },
+    {
+      "id": 75,
+      "title": "Heap Total",
+      "description": "Total V8 heap allocated",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(nodejs_heap_size_total_bytes{instance=~\"$instance\"}) by (instance)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        }
+      },
+      "gridPos": { "h": 5, "w": 3, "x": 20, "y": 32 }
+    },
+    {
+      "id": 76,
+      "title": "Heap Limit",
+      "description": "V8 heap size limit",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(nodejs_heap_size_limit_bytes{instance=~\"$instance\"}) by (instance)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": { "mode": "fixed", "fixedColor": "red" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "red", "value": 200000000 }] }
+        }
+      },
+      "gridPos": { "h": 5, "w": 3, "x": 23, "y": 32 }
+    },
+    {
+      "id": 80,
+      "title": "CPU Usage (rate)",
+      "description": "CPU seconds per second",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "rate(process_cpu_seconds_total{instance=~\"$instance\"}[1m])",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "color": { "mode": "fixed", "fixedColor": "green" }
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 37 }
+    },
+    {
+      "id": 81,
+      "title": "Resident Memory",
+      "description": "RSS memory usage",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "process_resident_memory_bytes{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": { "mode": "fixed", "fixedColor": "blue" }
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 37 }
+    },
+    {
+      "id": 82,
+      "title": "Process Uptime",
+      "description": "Time since process started",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "time() - process_start_time_seconds{instance=~\"$instance\"}",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "fixed", "fixedColor": "purple" }
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 37 }
+    },
+    {
+      "id": 83,
+      "title": "Event Loop Lag (p50)",
+      "description": "Median event loop delay",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(nodejs_eventloop_lag_p50_seconds{instance=~\"$instance\"}) by (instance)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "fixed", "fixedColor": "green" },
+          "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 0.01 }, { "color": "red", "value": 0.1 }] }
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 37 }
+    },
+    {
+      "id": 84,
+      "title": "Event Loop Lag (p90)",
+      "description": "90th percentile event loop delay",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "sum(nodejs_eventloop_lag_p90_seconds{instance=~\"$instance\"}) by (instance)",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": { "mode": "fixed", "fixedColor": "yellow" }
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 16, "y": 37 }
+    },
+    {
+      "id": 85,
+      "title": "Node.js Version",
+      "description": "Running Node.js version",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        {
+          "expr": "nodejs_version_info{instance=~\"$instance\"}",
+          "legendFormat": "{{version}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": { "mode": "fixed", "fixedColor": "cyan" }
+        }
+      },
+      "gridPos": { "h": 5, "w": 4, "x": 20, "y": 37 }
+    },
+    {
+      "id": 300,
+      "title": "--- Garbage Collection ---",
+      "type": "text",
+      "gridPos": { "h": 2, "w": 24, "x": 0, "y": 42 },
+      "options": { "mode": "markdown", "content": "" }
+    },
+    {
+      "id": 90,
+      "title": "GC Duration (p99)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(nodejs_gc_duration_seconds_sum{quantile=\"0.99\", instance=~\"$instance\"}) by (instance)", "legendFormat": "{{instance}}" }],
+      "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "fixed", "fixedColor": "green" } } },
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 44 }
+    },
+    {
+      "id": 91,
+      "title": "GC Duration (mean)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(nodejs_gc_duration_seconds_sum{instance=~\"$instance\"}) by (instance)", "legendFormat": "{{instance}}" }],
+      "fieldConfig": { "defaults": { "unit": "s", "color": { "mode": "fixed", "fixedColor": "blue" } } },
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 44 }
+    },
+    {
+      "id": 92,
+      "title": "GC Count",
+      "description": "Total garbage collections performed",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(nodejs_gc_duration_seconds_count{instance=~\"$instance\"}) by (instance)", "legendFormat": "{{instance}}" }],
+      "fieldConfig": { "defaults": { "unit": "short", "color": { "mode": "fixed", "fixedColor": "yellow" } } },
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 44 }
+    },
+    {
+      "id": 93,
+      "title": "Heap Space Used",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "expr": "sum(nodejs_heap_space_size_used_bytes{instance=~\"$instance\"}) by (space, instance)", "legendFormat": "{{space}} — {{instance}}" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "color": { "mode": "fixed", "fixedColor": "purple" } } },
+      "gridPos": { "h": 5, "w": 4, "x": 12, "y": 44 }
+    },
+    {
+      "id": 94,
+      "title": "Heap Space Total",
+      "description": "Total heap space per V8 memory region",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(nodejs_heap_space_size_total_bytes{instance=~\"$instance\"}) by (space, instance)", "legendFormat": "{{space}} — {{instance}}" }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } },
+      "gridPos": { "h": 5, "w": 4, "x": 16, "y": 44 }
+    }
+  ],
+  "schemaVersion": 39,
+  "version": 3,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "10s"
+}

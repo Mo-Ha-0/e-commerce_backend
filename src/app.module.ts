@@ -21,6 +21,7 @@ import { OrdersModule } from './orders/orders.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { WalletModule } from './wallet/wallet.module';
 import { HealthModule } from './health/health.module';
+import { MetricsModule } from './metrics/metrics.module';
 
 @Module({
     imports: [
@@ -75,6 +76,7 @@ import { HealthModule } from './health/health.module';
         InventoryModule,
         WalletModule,
         HealthModule,
+        MetricsModule,
     ],
     providers: [
         // {
