@@ -22,6 +22,7 @@ import { InventoryModule } from './inventory/inventory.module';
 import { WalletModule } from './wallet/wallet.module';
 import { HealthModule } from './health/health.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { CacheModule } from './common/cache/cache.module';
 
 @Module({
     imports: [
@@ -68,6 +69,7 @@ import { MetricsModule } from './metrics/metrics.module';
                 },
             }),
         }),
+        CacheModule,
         AuthModule,
         UsersModule,
         ProductsModule,

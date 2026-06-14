@@ -2,6 +2,7 @@ import {
     Column,
     CreateDateColumn,
     Entity,
+    Index,
     OneToMany,
     PrimaryGeneratedColumn,
     UpdateDateColumn,
@@ -28,6 +29,7 @@ export class Product {
     @Column({ type: 'int', default: 0 })
     stock: number;
 
+    @Index()
     @CreateDateColumn()
     createdAt: Date;
 
