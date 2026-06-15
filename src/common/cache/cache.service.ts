@@ -34,7 +34,7 @@ export class CacheService implements OnModuleDestroy {
     async mget<T>(keys: string[]): Promise<(T | null)[]> {
         if (keys.length === 0) return [];
         const cachedArr = await this.redis.mget(...keys);
-        
+
         return cachedArr.map((cached, index) => {
             if (cached === null) return null;
             try {

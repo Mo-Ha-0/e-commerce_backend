@@ -32,16 +32,16 @@ export class Discount {
 
     @Column({ nullable: true })
     @Index()
-    productId: string;
+    productId: string | null;
 
     @Column({ default: true })
     isActive: boolean;
 
     @Column({ type: 'timestamp', nullable: true })
-    startDate: Date;
+    startDate: Date | null;
 
     @Column({ type: 'timestamp', nullable: true })
-    endDate: Date;
+    endDate: Date | null;
 
     @CreateDateColumn()
     createdAt: Date;

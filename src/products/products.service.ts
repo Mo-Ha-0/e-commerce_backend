@@ -68,7 +68,10 @@ export class ProductsService {
                 stock: stockMap.get(item.id) ?? 0,
             })) as Product[];
 
-            return [await this.applyDiscounts(itemsWithStock), total] as [Product[], number];
+            return [await this.applyDiscounts(itemsWithStock), total] as [
+                Product[],
+                number,
+            ];
         }
 
         const result = await this.productsRepository.findAndCount({
@@ -88,7 +91,10 @@ export class ProductsService {
             PRODUCT_LIST_CACHE_TTL,
         );
 
-        return [await this.applyDiscounts(items as Product[]), total] as [Product[], number];
+        return [await this.applyDiscounts(items as Product[]), total] as [
+            Product[],
+            number,
+        ];
     }
 
     async findOne(id: string) {
@@ -108,8 +114,13 @@ export class ProductsService {
                 await this.cacheService.invalidate(cacheKey);
                 throw new NotFoundException('Product not found');
             }
-            const productWithStock = { ...cached, stock: stockResult.stock } as Product;
-            const [productWithDiscount] = await this.applyDiscounts([productWithStock]);
+            const productWithStock = {
+                ...cached,
+                stock: stockResult.stock,
+            } as Product;
+            const [productWithDiscount] = await this.applyDiscounts([
+                productWithStock,
+            ]);
             return productWithDiscount;
         }
 
@@ -129,7 +140,9 @@ export class ProductsService {
     }
 
     async update(id: string, dto: UpdateProductDto) {
-        const product = await this.productsRepository.findOne({ where: { id } });
+        const product = await this.productsRepository.findOne({
+            where: { id },
+        });
         if (!product) {
             throw new NotFoundException('Product not found');
         }
@@ -170,7 +183,7 @@ export class ProductsService {
         const globalDiscount = discounts.pop();
 
         const now = new Date();
-        const isValid = (d: Discount) => {
+        const isValid = (d: Discount | null | undefined): d is Discount => {
             if (!d || !d.isActive) return false;
             if (d.startDate && new Date(d.startDate) > now) return false;
             if (d.endDate && new Date(d.endDate) <= now) return false;
@@ -180,45 +193,65 @@ export class ProductsService {
         return products.map((product, index) => {
             const productDiscount = discounts[index];
             const basePrice = Number(product.price);
-            
+
             let priceWithProductDiscount = basePrice;
             if (isValid(productDiscount)) {
                 if (productDiscount.type === DiscountType.PERCENTAGE) {
-                    priceWithProductDiscount = basePrice * (1 - Number(productDiscount.value) / 100);
+                    priceWithProductDiscount =
+                        basePrice * (1 - Number(productDiscount.value) / 100);
                 } else if (productDiscount.type === DiscountType.FIXED) {
-                    priceWithProductDiscount = Math.max(0, basePrice - Number(productDiscount.value));
+                    priceWithProductDiscount = Math.max(
+                        0,
+                        basePrice - Number(productDiscount.value),
+                    );
                 }
             }
 
             let priceWithGlobalDiscount = basePrice;
             if (isValid(globalDiscount)) {
                 if (globalDiscount.type === DiscountType.PERCENTAGE) {
-                    priceWithGlobalDiscount = basePrice * (1 - Number(globalDiscount.value) / 100);
+                    priceWithGlobalDiscount =
+                        basePrice * (1 - Number(globalDiscount.value) / 100);
                 } else if (globalDiscount.type === DiscountType.FIXED) {
-                    priceWithGlobalDiscount = Math.max(0, basePrice - Number(globalDiscount.value));
+                    priceWithGlobalDiscount = Math.max(
+                        0,
+                        basePrice - Number(globalDiscount.value),
+                    );
                 }
             }
 
             let finalPrice = basePrice;
-            let appliedDiscount = null;
+            let appliedDiscount: {
+                id: string;
+                name: string;
+                type: DiscountType;
+                value: number;
+            } | null = null;
 
-            if (priceWithProductDiscount < basePrice || priceWithGlobalDiscount < basePrice) {
+            if (
+                priceWithProductDiscount < basePrice ||
+                priceWithGlobalDiscount < basePrice
+            ) {
                 if (priceWithProductDiscount <= priceWithGlobalDiscount) {
                     finalPrice = priceWithProductDiscount;
-                    appliedDiscount = {
-                        id: productDiscount.id,
-                        name: productDiscount.name,
-                        type: productDiscount.type,
-                        value: Number(productDiscount.value),
-                    };
+                    appliedDiscount = productDiscount
+                        ? {
+                              id: productDiscount.id,
+                              name: productDiscount.name,
+                              type: productDiscount.type,
+                              value: Number(productDiscount.value),
+                          }
+                        : null;
                 } else {
                     finalPrice = priceWithGlobalDiscount;
-                    appliedDiscount = {
-                        id: globalDiscount.id,
-                        name: globalDiscount.name,
-                        type: globalDiscount.type,
-                        value: Number(globalDiscount.value),
-                    };
+                    appliedDiscount = globalDiscount
+                        ? {
+                              id: globalDiscount.id,
+                              name: globalDiscount.name,
+                              type: globalDiscount.type,
+                              value: Number(globalDiscount.value),
+                          }
+                        : null;
                 }
             }
 

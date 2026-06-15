@@ -8,7 +8,11 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { CacheModule } from '../common/cache/cache.module';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([CartItem, Product]), InventoryModule, CacheModule],
+    imports: [
+        TypeOrmModule.forFeature([CartItem, Product]),
+        InventoryModule,
+        CacheModule,
+    ],
     controllers: [CartController],
     providers: [CartService],
     exports: [CartService],

@@ -24,7 +24,9 @@ export class MetricsInterceptor implements NestInterceptor {
             originalUrl?: string;
             url: string;
         }>();
-        const res = context.switchToHttp().getResponse<{ statusCode: number }>();
+        const res = context
+            .switchToHttp()
+            .getResponse<{ statusCode: number }>();
         const startedAt = performance.now();
 
         return next.handle().pipe(
@@ -33,8 +35,12 @@ export class MetricsInterceptor implements NestInterceptor {
                 const route = req.originalUrl ?? req.url;
                 const statusCode = res.statusCode ?? 200;
 
-                httpRequestDuration.labels(req.method, route, String(statusCode)).observe(duration);
-                httpRequestsTotal.labels(req.method, route, String(statusCode)).inc();
+                httpRequestDuration
+                    .labels(req.method, route, String(statusCode))
+                    .observe(duration);
+                httpRequestsTotal
+                    .labels(req.method, route, String(statusCode))
+                    .inc();
             }),
         );
     }

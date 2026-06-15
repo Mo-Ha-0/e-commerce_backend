@@ -7,7 +7,10 @@ import { DiscountsController } from './discounts.controller';
 import { CacheModule } from '../common/cache/cache.module';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Discount, DiscountAuditLog]), CacheModule],
+    imports: [
+        TypeOrmModule.forFeature([Discount, DiscountAuditLog]),
+        CacheModule,
+    ],
     controllers: [DiscountsController],
     providers: [DiscountsService],
     exports: [DiscountsService],

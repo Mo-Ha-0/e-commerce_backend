@@ -3,7 +3,10 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Discount } from '../database/entities/discount.entity';
-import { DiscountAuditLog, DiscountAuditAction } from '../database/entities/discount-audit-log.entity';
+import {
+    DiscountAuditLog,
+    DiscountAuditAction,
+} from '../database/entities/discount-audit-log.entity';
 import { CreateDiscountDto } from './dto/create-discount.dto';
 import { UpdateDiscountDto } from './dto/update-discount.dto';
 import { CacheService } from '../common/cache/cache.service';
@@ -81,7 +84,7 @@ export class DiscountsService {
             discountName: updated.name,
             action: DiscountAuditAction.UPDATED,
             changes: dto,
-            adminId: 'system', 
+            adminId: 'system',
         });
 
         return updated;
@@ -91,7 +94,7 @@ export class DiscountsService {
         const discount = await this.findOne(id);
         await this.discountsRepository.remove(discount);
         await this.removeCache(discount);
-        
+
         await this.auditLogsRepository.save({
             discountId: discount.id,
             discountName: discount.name,

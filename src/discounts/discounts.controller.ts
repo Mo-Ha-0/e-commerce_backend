@@ -54,7 +54,7 @@ export class DiscountsController {
     remove(@Param('id') id: string) {
         return this.discountsService.remove(id);
     }
-    
+
     @UseGuards(JwtAuthGuard, RolesGuard)
     @Roles(UserRole.Admin, UserRole.SuperAdmin)
     @Post('actions/pre-warm')
