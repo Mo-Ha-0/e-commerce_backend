@@ -5,6 +5,7 @@ import { Product } from '../database/entities/product.entity';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { CacheService } from '../common/cache/cache.service';
+import { Discount, DiscountType } from '../database/entities/discount.entity';
 
 const PRODUCT_CACHE_TTL = 3600;
 const PRODUCT_LIST_CACHE_TTL = 300;
@@ -32,7 +33,8 @@ export class ProductsService {
 
         await this.cacheService.invalidatePattern('products:list:*');
 
-        return product;
+        const [productWithDiscount] = await this.applyDiscounts([product]);
+        return productWithDiscount;
     }
 
     async findAll(page = 1, limit = 20) {
@@ -47,6 +49,9 @@ export class ProductsService {
             );
         if (cached) {
             const [items, total] = cached;
+            if (items.length === 0) {
+                return [items, total] as [Product[], number];
+            }
             const ids = items.map((item) => item.id);
 
             const stockRows = await this.productsRepository.find({
@@ -63,7 +68,7 @@ export class ProductsService {
                 stock: stockMap.get(item.id) ?? 0,
             })) as Product[];
 
-            return [itemsWithStock, total] as [Product[], number];
+            return [await this.applyDiscounts(itemsWithStock), total] as [Product[], number];
         }
 
         const result = await this.productsRepository.findAndCount({
@@ -83,7 +88,7 @@ export class ProductsService {
             PRODUCT_LIST_CACHE_TTL,
         );
 
-        return result;
+        return [await this.applyDiscounts(items as Product[]), total] as [Product[], number];
     }
 
     async findOne(id: string) {
@@ -103,7 +108,9 @@ export class ProductsService {
                 await this.cacheService.invalidate(cacheKey);
                 throw new NotFoundException('Product not found');
             }
-            return { ...cached, stock: stockResult.stock } as Product;
+            const productWithStock = { ...cached, stock: stockResult.stock } as Product;
+            const [productWithDiscount] = await this.applyDiscounts([productWithStock]);
+            return productWithDiscount;
         }
 
         const product = await this.productsRepository.findOne({
@@ -117,11 +124,15 @@ export class ProductsService {
         const { stock: _stock, ...cacheData } = product;
         await this.cacheService.set(cacheKey, cacheData, PRODUCT_CACHE_TTL);
 
-        return product;
+        const [productWithDiscount] = await this.applyDiscounts([product]);
+        return productWithDiscount;
     }
 
     async update(id: string, dto: UpdateProductDto) {
-        const product = await this.findOne(id);
+        const product = await this.productsRepository.findOne({ where: { id } });
+        if (!product) {
+            throw new NotFoundException('Product not found');
+        }
 
         if (dto.name !== undefined) {
             product.name = dto.name;
@@ -138,17 +149,85 @@ export class ProductsService {
 
         const updated = await this.productsRepository.save(product);
 
-        const cached = await this.cacheService.get(`product:${id}`);
-        if (cached) {
-            const { stock: _stock, ...cacheData } = updated;
-            await this.cacheService.set(
-                `product:${id}`,
-                cacheData,
-                PRODUCT_CACHE_TTL,
-            );
-        }
+        const { stock: _stock, ...cacheData } = updated;
+        await this.cacheService.set(
+            `product:${id}`,
+            cacheData,
+            PRODUCT_CACHE_TTL,
+        );
         await this.cacheService.invalidatePattern('products:list:*');
 
-        return updated;
+        const [productWithDiscount] = await this.applyDiscounts([updated]);
+        return productWithDiscount;
+    }
+
+    private async applyDiscounts(products: Product[]): Promise<any[]> {
+        if (products.length === 0) return [];
+
+        const discountKeys = products.map((p) => `discount:product:${p.id}`);
+        discountKeys.push('discount:global:active');
+        const discounts = await this.cacheService.mget<Discount>(discountKeys);
+        const globalDiscount = discounts.pop();
+
+        const now = new Date();
+        const isValid = (d: Discount) => {
+            if (!d || !d.isActive) return false;
+            if (d.startDate && new Date(d.startDate) > now) return false;
+            if (d.endDate && new Date(d.endDate) <= now) return false;
+            return true;
+        };
+
+        return products.map((product, index) => {
+            const productDiscount = discounts[index];
+            const basePrice = Number(product.price);
+            
+            let priceWithProductDiscount = basePrice;
+            if (isValid(productDiscount)) {
+                if (productDiscount.type === DiscountType.PERCENTAGE) {
+                    priceWithProductDiscount = basePrice * (1 - Number(productDiscount.value) / 100);
+                } else if (productDiscount.type === DiscountType.FIXED) {
+                    priceWithProductDiscount = Math.max(0, basePrice - Number(productDiscount.value));
+                }
+            }
+
+            let priceWithGlobalDiscount = basePrice;
+            if (isValid(globalDiscount)) {
+                if (globalDiscount.type === DiscountType.PERCENTAGE) {
+                    priceWithGlobalDiscount = basePrice * (1 - Number(globalDiscount.value) / 100);
+                } else if (globalDiscount.type === DiscountType.FIXED) {
+                    priceWithGlobalDiscount = Math.max(0, basePrice - Number(globalDiscount.value));
+                }
+            }
+
+            let finalPrice = basePrice;
+            let appliedDiscount = null;
+
+            if (priceWithProductDiscount < basePrice || priceWithGlobalDiscount < basePrice) {
+                if (priceWithProductDiscount <= priceWithGlobalDiscount) {
+                    finalPrice = priceWithProductDiscount;
+                    appliedDiscount = {
+                        id: productDiscount.id,
+                        name: productDiscount.name,
+                        type: productDiscount.type,
+                        value: Number(productDiscount.value),
+                    };
+                } else {
+                    finalPrice = priceWithGlobalDiscount;
+                    appliedDiscount = {
+                        id: globalDiscount.id,
+                        name: globalDiscount.name,
+                        type: globalDiscount.type,
+                        value: Number(globalDiscount.value),
+                    };
+                }
+            }
+
+            return {
+                ...product,
+                originalPrice: basePrice,
+                price: finalPrice.toFixed(2),
+                discount: appliedDiscount,
+            };
+        });
     }
 }

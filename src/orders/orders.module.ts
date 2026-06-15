@@ -13,6 +13,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { InvoiceModule } from '../invoice/invoice.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { CheckoutFacade } from './facades/checkout.facade';
+import { CacheModule } from '../common/cache/cache.module';
 
 @Module({
     imports: [
@@ -28,6 +29,7 @@ import { CheckoutFacade } from './facades/checkout.facade';
         InventoryModule,
         InvoiceModule,
         NotificationsModule,
+        CacheModule,
     ],
     controllers: [OrdersController],
     providers: [OrdersService, CheckoutFacade],

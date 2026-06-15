@@ -31,6 +31,21 @@ export class CacheService implements OnModuleDestroy {
         }
     }
 
+    async mget<T>(keys: string[]): Promise<(T | null)[]> {
+        if (keys.length === 0) return [];
+        const cachedArr = await this.redis.mget(...keys);
+        
+        return cachedArr.map((cached, index) => {
+            if (cached === null) return null;
+            try {
+                return JSON.parse(cached) as T;
+            } catch {
+                this.logger.warn(`Failed to parse cache key: ${keys[index]}`);
+                return null;
+            }
+        });
+    }
+
     async set<T>(key: string, value: T, ttlSeconds: number): Promise<void> {
         await this.redis.setex(key, ttlSeconds, JSON.stringify(value));
     }

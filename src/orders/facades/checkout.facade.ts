@@ -26,6 +26,8 @@ import {
 import { EmailService } from '../../email/email.service';
 import { StockValidationService } from '../../inventory/services/stock-validation.service';
 import { InvoicePdfService } from '../../invoice/invoice-pdf.service';
+import { CacheService } from '../../common/cache/cache.service';
+import { Discount, DiscountType } from '../../database/entities/discount.entity';
 import { LowStockNotificationService } from '../../notifications/low-stock-notification.service';
 
 @Injectable()
@@ -44,6 +46,7 @@ export class CheckoutFacade {
         private readonly emailService: EmailService,
         private readonly invoicePdfService: InvoicePdfService,
         private readonly lowStockNotificationService: LowStockNotificationService,
+        private readonly cacheService: CacheService,
         configService: ConfigService,
     ) {
         this.checkoutSemaphore = new Semaphore(
@@ -74,6 +77,28 @@ export class CheckoutFacade {
             );
 
             const savedOrder = order;
+            
+            const discountKeys = cartItems.map((item) => `discount:product:${item.productId}`);
+            discountKeys.push('discount:global:active');
+            
+            const discounts = await this.cacheService.mget<Discount>(discountKeys);
+            const globalDiscount = discounts.pop();
+            
+            const now = new Date();
+            const isValid = (d: Discount | null | undefined) => {
+                if (!d || !d.isActive) return false;
+                if (d.startDate && new Date(d.startDate) > now) return false;
+                if (d.endDate && new Date(d.endDate) <= now) return false;
+                return true;
+            };
+
+            const discountMap = new Map<string, Discount>();
+            discounts.forEach((discount) => {
+                if (isValid(discount)) {
+                    discountMap.set(discount.productId, discount);
+                }
+            });
+
             const { items, updatedProducts } =
                 await this.dataSource.transaction(async (manager) => {
                     cartItems.sort((a, b) =>
@@ -116,20 +141,48 @@ export class CheckoutFacade {
                             throw new NotFoundException('Product not found');
                         }
 
-                        totalAmountCents +=
-                            moneyToCents(product.price) * cartItem.quantity;
+                        const basePriceCents = moneyToCents(product.price);
+                        let priceWithProductDiscountCents = basePriceCents;
+                        let priceWithGlobalDiscountCents = basePriceCents;
+                        const productDiscount = discountMap.get(product.id);
+                        
+                        if (productDiscount) {
+                            let priceFloat = Number(product.price);
+                            if (productDiscount.type === DiscountType.PERCENTAGE) {
+                                priceFloat = priceFloat * (1 - Number(productDiscount.value) / 100);
+                            } else if (productDiscount.type === DiscountType.FIXED) {
+                                priceFloat = Math.max(0, priceFloat - Number(productDiscount.value));
+                            }
+                            priceWithProductDiscountCents = Math.round(priceFloat * 100);
+                        }
+
+                        if (isValid(globalDiscount)) {
+                            let priceFloat = Number(product.price);
+                            if (globalDiscount.type === DiscountType.PERCENTAGE) {
+                                priceFloat = priceFloat * (1 - Number(globalDiscount.value) / 100);
+                            } else if (globalDiscount.type === DiscountType.FIXED) {
+                                priceFloat = Math.max(0, priceFloat - Number(globalDiscount.value));
+                            }
+                            priceWithGlobalDiscountCents = Math.round(priceFloat * 100);
+                        }
+
+                        const finalPriceCents = Math.min(priceWithProductDiscountCents, priceWithGlobalDiscountCents, basePriceCents);
+
+                        totalAmountCents += finalPriceCents * cartItem.quantity;
 
                         orderItems.push(
                             manager.getRepository(OrderItem).create({
                                 orderId: savedOrder.id,
                                 productId: product.id,
                                 quantity: cartItem.quantity,
-                                priceAtTime: product.price,
+                                priceAtTime: centsToMoney(finalPriceCents),
                             }),
                         );
                     }
 
                     const balanceBeforeCents = moneyToCents(user.balance);
+
+
 
                     if (balanceBeforeCents < totalAmountCents) {
                         throw new BadRequestException(
