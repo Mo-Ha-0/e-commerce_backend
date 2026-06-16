@@ -35,6 +35,7 @@ export class Discount {
     productId: string | null;
 
     @Column({ default: true })
+    @Index()
     isActive: boolean;
 
     @Column({ type: 'timestamp', nullable: true })

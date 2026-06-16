@@ -31,6 +31,7 @@ import {
     DiscountType,
 } from '../../database/entities/discount.entity';
 import { LowStockNotificationService } from '../../notifications/low-stock-notification.service';
+import { FailedJob } from '../../database/entities/failed-job.entity';
 
 @Injectable()
 export class CheckoutFacade {
@@ -43,6 +44,8 @@ export class CheckoutFacade {
         private readonly cartRepository: Repository<CartItem>,
         @InjectRepository(Order)
         private readonly ordersRepository: Repository<Order>,
+        @InjectRepository(FailedJob)
+        private readonly failedJobsRepository: Repository<FailedJob>,
         private readonly stockValidationService: StockValidationService,
         private readonly emailService: EmailService,
         private readonly invoicePdfService: InvoicePdfService,
@@ -51,9 +54,15 @@ export class CheckoutFacade {
         private readonly distributedLock: DistributedLockService,
     ) {}
 
-    async checkout(userId: string) {
-        // Redis distributed lock — prevents duplicate checkout across ALL server instances.
-        // Acts as an idempotency guard (double-click / double-submit protection).
+    async checkout(userId: string, idempotencyKey?: string) {
+        if (idempotencyKey) {
+            const existing = await this.ordersRepository.findOne({
+                where: { idempotencyKey },
+                relations: { items: true },
+            });
+            if (existing) return existing;
+        }
+
         const checkoutLockKey = `lock:checkout:${userId}`;
         const checkoutAcquired = await this.distributedLock.acquire(
             checkoutLockKey,
@@ -103,6 +112,7 @@ export class CheckoutFacade {
             order = await this.ordersRepository.save(
                 this.ordersRepository.create({
                     userId,
+                    idempotencyKey: idempotencyKey,
                     totalAmount: '0.00',
                     status: OrderStatus.Pending,
                     paymentStatus: PaymentStatus.Pending,
@@ -322,24 +332,49 @@ export class CheckoutFacade {
         orderId: string,
         products: Product[],
     ) {
-        const results = await Promise.allSettled([
-            this.emailService.enqueueOrderConfirmation(orderId),
-            this.invoicePdfService.enqueueInvoiceGeneration(orderId),
-            this.lowStockNotificationService.enqueueLowStockAlerts(
-                orderId,
-                products,
-            ),
-        ]);
+        const jobs: Array<{
+            name: string;
+            fn: () => Promise<unknown>;
+        }> = [
+            {
+                name: 'email:order-confirmation',
+                fn: () => this.emailService.enqueueOrderConfirmation(orderId),
+            },
+            {
+                name: 'invoice:generation',
+                fn: () =>
+                    this.invoicePdfService.enqueueInvoiceGeneration(orderId),
+            },
+            {
+                name: 'low-stock:alert',
+                fn: () =>
+                    this.lowStockNotificationService.enqueueLowStockAlerts(
+                        orderId,
+                        products,
+                    ),
+            },
+        ];
 
-        results.forEach((result) => {
-            if (result.status === 'rejected') {
+        for (const job of jobs) {
+            try {
+                await job.fn();
+            } catch (err) {
+                const errorMessage =
+                    err instanceof Error ? err.message : String(err);
                 this.logger.error(
-                    `Post-checkout job enqueue failed for order ${orderId}`,
-                    result.reason instanceof Error
-                        ? result.reason.stack
-                        : String(result.reason),
+                    `Post-checkout job "${job.name}" failed for order ${orderId}: ${errorMessage}`,
+                );
+
+                await this.failedJobsRepository.save(
+                    this.failedJobsRepository.create({
+                        orderId,
+                        jobType: job.name,
+                        error: errorMessage,
+                        retryCount: 0,
+                        pendingRetry: true,
+                    }),
                 );
             }
-        });
+        }
     }
 }

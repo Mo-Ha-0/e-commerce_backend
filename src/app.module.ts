@@ -16,6 +16,7 @@ import { SalesSummary } from './database/entities/sales-summary.entity';
 import { WalletTransaction } from './database/entities/wallet-transaction.entity';
 import { Discount } from './database/entities/discount.entity';
 import { DiscountAuditLog } from './database/entities/discount-audit-log.entity';
+import { FailedJob } from './database/entities/failed-job.entity';
 import { UsersModule } from './users/users.module';
 import { ProductsModule } from './products/products.module';
 import { CartModule } from './cart/cart.module';
@@ -67,6 +68,7 @@ import { DiscountsModule } from './discounts/discounts.module';
                     WalletTransaction,
                     Discount,
                     DiscountAuditLog,
+                    FailedJob,
                 ],
                 synchronize:
                     config.get<string>('TYPEORM_SYNC', 'true') === 'true',

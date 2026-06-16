@@ -29,6 +29,9 @@ export class Order {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
+    @Column({ nullable: true, unique: true })
+    idempotencyKey?: string;
+
     @Column()
     userId: string;
 
