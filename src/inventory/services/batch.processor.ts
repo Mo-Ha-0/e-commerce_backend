@@ -66,12 +66,12 @@ export class BatchProcessor extends WorkerHost {
         }
 
         const pdfLockKey = `batch-pdf-lock:${periodLabel}`;
-        const acquired = await this.distributedLock.acquire(
+        const pdfToken = await this.distributedLock.acquire(
             pdfLockKey,
             PDF_LOCK_TTL_MS,
         );
 
-        if (!acquired) {
+        if (!pdfToken) {
             this.logger.log(
                 `PDF generation already claimed by another instance for ${periodLabel}, skipping`,
             );
@@ -98,10 +98,12 @@ export class BatchProcessor extends WorkerHost {
                 );
             }
         } catch (err) {
-            await this.distributedLock.release(pdfLockKey);
             this.logger.error(
                 `Failed to generate monthly PDF for ${periodLabel}: ${err instanceof Error ? err.message : String(err)}`,
             );
+            throw err;
+        } finally {
+            await this.distributedLock.release(pdfLockKey, pdfToken);
         }
     }
 }

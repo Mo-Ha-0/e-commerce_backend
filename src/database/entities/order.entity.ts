@@ -42,7 +42,7 @@ export class Order {
     @Column({ type: 'decimal', precision: 10, scale: 2 })
     totalAmount: string;
 
-    @Column({ type: 'varchar', length: 20, default: OrderStatus.Completed })
+    @Column({ type: 'varchar', length: 20, default: OrderStatus.Pending })
     status: OrderStatus;
 
     @Column({ type: 'varchar', length: 20, default: PaymentStatus.Pending })

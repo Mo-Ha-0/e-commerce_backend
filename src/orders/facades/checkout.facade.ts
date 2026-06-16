@@ -64,21 +64,32 @@ export class CheckoutFacade {
         }
 
         const checkoutLockKey = `lock:checkout:${userId}`;
-        const checkoutAcquired = await this.distributedLock.acquire(
+        const checkoutToken = await this.distributedLock.acquire(
             checkoutLockKey,
-            30_000, // 30s TTL — enough for the whole transaction
+            30_000,
         );
 
-        if (!checkoutAcquired) {
+        if (!checkoutToken) {
             throw new BadRequestException(
                 'A checkout is already in progress for this user',
             );
         }
 
+        let heartbeat: ReturnType<typeof setInterval> | undefined;
         let order: Order | undefined;
-        const acquiredStockLocks: string[] = [];
+        const acquiredStockLocks: Array<{ key: string; token: string }> = [];
 
         try {
+            heartbeat = setInterval(() => {
+                this.distributedLock
+                    .extend(checkoutLockKey, checkoutToken, 30_000)
+                    .catch(() => {
+                        this.logger.warn(
+                            'Checkout lock heartbeat extend failed',
+                        );
+                    });
+            }, 10_000);
+
             const cartItems = await this.cartRepository.find({
                 where: { userId },
             });
@@ -87,26 +98,27 @@ export class CheckoutFacade {
                 throw new BadRequestException('Cart is empty');
             }
 
-            // Sort product IDs to acquire stock locks in a consistent order,
-            // preventing distributed deadlocks across concurrent checkouts.
             const sortedProductIds = [
                 ...new Set(cartItems.map((i) => i.productId)),
             ].sort();
 
             for (const productId of sortedProductIds) {
                 const stockLockKey = `lock:stock:${productId}`;
-                const stockAcquired = await this.distributedLock.acquire(
+                const stockToken = await this.distributedLock.acquire(
                     stockLockKey,
-                    10_000, // 10s TTL per product lock
+                    10_000,
                 );
 
-                if (!stockAcquired) {
+                if (!stockToken) {
                     throw new BadRequestException(
                         `Could not reserve stock for product ${productId}. Please try again.`,
                     );
                 }
 
-                acquiredStockLocks.push(stockLockKey);
+                acquiredStockLocks.push({
+                    key: stockLockKey,
+                    token: stockToken,
+                });
             }
 
             order = await this.ordersRepository.save(
@@ -320,11 +332,11 @@ export class CheckoutFacade {
             }
             throw error;
         } finally {
-            // Always release stock locks first (LIFO order), then the user checkout lock.
-            for (const lockKey of acquiredStockLocks.reverse()) {
-                await this.distributedLock.release(lockKey);
+            clearInterval(heartbeat);
+            for (const lock of acquiredStockLocks.reverse()) {
+                await this.distributedLock.release(lock.key, lock.token);
             }
-            await this.distributedLock.release(checkoutLockKey);
+            await this.distributedLock.release(checkoutLockKey, checkoutToken);
         }
     }
 
@@ -355,20 +367,23 @@ export class CheckoutFacade {
             },
         ];
 
-        for (const job of jobs) {
-            try {
-                await job.fn();
-            } catch (err) {
+        const results = await Promise.allSettled(jobs.map((job) => job.fn()));
+
+        for (let i = 0; i < jobs.length; i++) {
+            const result = results[i];
+            if (result.status === 'rejected') {
                 const errorMessage =
-                    err instanceof Error ? err.message : String(err);
+                    result.reason instanceof Error
+                        ? result.reason.message
+                        : String(result.reason);
                 this.logger.error(
-                    `Post-checkout job "${job.name}" failed for order ${orderId}: ${errorMessage}`,
+                    `Post-checkout job "${jobs[i].name}" failed for order ${orderId}: ${errorMessage}`,
                 );
 
                 await this.failedJobsRepository.save(
                     this.failedJobsRepository.create({
                         orderId,
-                        jobType: job.name,
+                        jobType: jobs[i].name,
                         error: errorMessage,
                         retryCount: 0,
                         pendingRetry: true,

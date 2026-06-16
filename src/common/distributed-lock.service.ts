@@ -1,6 +1,21 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import * as crypto from 'node:crypto';
+
+const SAFE_RELEASE_SCRIPT = `
+    if redis.call("GET", KEYS[1]) == ARGV[1] then
+        return redis.call("DEL", KEYS[1])
+    end
+    return 0
+`;
+
+const SAFE_EXTEND_SCRIPT = `
+    if redis.call("GET", KEYS[1]) == ARGV[1] then
+        return redis.call("PEXPIRE", KEYS[1], ARGV[2])
+    end
+    return 0
+`;
 
 @Injectable()
 export class DistributedLockService implements OnModuleDestroy {
@@ -18,24 +33,29 @@ export class DistributedLockService implements OnModuleDestroy {
         await this.redis.quit();
     }
 
-    async acquire(key: string, ttlMs: number): Promise<boolean> {
-        const result = await this.redis.set(key, '1', 'PX', ttlMs, 'NX');
+    async acquire(key: string, ttlMs: number): Promise<string | null> {
+        const token = crypto.randomUUID();
+        const result = await this.redis.set(key, token, 'PX', ttlMs, 'NX');
         const acquired = result === 'OK';
         if (!acquired) {
             this.logger.debug(`Lock not acquired: ${key}`);
+            return null;
         }
-        return acquired;
+        return token;
     }
 
-    async release(key: string): Promise<void> {
-        await this.redis.del(key);
+    async release(key: string, token: string): Promise<void> {
+        await this.redis.eval(SAFE_RELEASE_SCRIPT, 1, key, token);
+    }
+
+    async extend(key: string, token: string, ttlMs: number): Promise<boolean> {
+        const result = await this.redis.eval(SAFE_EXTEND_SCRIPT, 1, key, token, ttlMs);
+        return result === 1;
     }
 
     async increment(key: string, ttlMs: number): Promise<number> {
         const count = await this.redis.incr(key);
-        if (count === 1) {
-            await this.redis.pexpire(key, ttlMs);
-        }
+        await this.redis.pexpire(key, ttlMs);
         return count;
     }
 }

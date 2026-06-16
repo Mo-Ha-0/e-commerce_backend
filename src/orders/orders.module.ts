@@ -15,6 +15,7 @@ import { InvoiceModule } from '../invoice/invoice.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { CheckoutFacade } from './facades/checkout.facade';
 import { CacheModule } from '../common/cache/cache.module';
+import { FailedJobRetryService } from './services/failed-job-retry.service';
 
 @Module({
     imports: [
@@ -34,6 +35,6 @@ import { CacheModule } from '../common/cache/cache.module';
         CacheModule,
     ],
     controllers: [OrdersController],
-    providers: [OrdersService, CheckoutFacade],
+    providers: [OrdersService, CheckoutFacade, FailedJobRetryService],
 })
 export class OrdersModule {}
