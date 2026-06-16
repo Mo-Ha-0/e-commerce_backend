@@ -4,11 +4,10 @@ import {
     Logger,
     NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { centsToMoney, moneyToCents } from '../../common/money';
-import { Semaphore } from '../../common/semaphore';
+import { DistributedLockService } from '../../common/distributed-lock.service';
 import { CartItem } from '../../database/entities/cart-item.entity';
 import { OrderItem } from '../../database/entities/order-item.entity';
 import {
@@ -36,7 +35,6 @@ import { LowStockNotificationService } from '../../notifications/low-stock-notif
 @Injectable()
 export class CheckoutFacade {
     private readonly logger = new Logger(CheckoutFacade.name);
-    private readonly checkoutSemaphore: Semaphore;
 
     constructor(
         @InjectDataSource()
@@ -50,16 +48,26 @@ export class CheckoutFacade {
         private readonly invoicePdfService: InvoicePdfService,
         private readonly lowStockNotificationService: LowStockNotificationService,
         private readonly cacheService: CacheService,
-        configService: ConfigService,
-    ) {
-        this.checkoutSemaphore = new Semaphore(
-            Number(configService.get<string>('CHECKOUT_MAX_CONCURRENT', '10')),
-        );
-    }
+        private readonly distributedLock: DistributedLockService,
+    ) {}
 
     async checkout(userId: string) {
-        const release = await this.checkoutSemaphore.acquire();
+        // Redis distributed lock — prevents duplicate checkout across ALL server instances.
+        // Acts as an idempotency guard (double-click / double-submit protection).
+        const checkoutLockKey = `lock:checkout:${userId}`;
+        const checkoutAcquired = await this.distributedLock.acquire(
+            checkoutLockKey,
+            30_000, // 30s TTL — enough for the whole transaction
+        );
+
+        if (!checkoutAcquired) {
+            throw new BadRequestException(
+                'A checkout is already in progress for this user',
+            );
+        }
+
         let order: Order | undefined;
+        const acquiredStockLocks: string[] = [];
 
         try {
             const cartItems = await this.cartRepository.find({
@@ -68,6 +76,28 @@ export class CheckoutFacade {
 
             if (cartItems.length === 0) {
                 throw new BadRequestException('Cart is empty');
+            }
+
+            // Sort product IDs to acquire stock locks in a consistent order,
+            // preventing distributed deadlocks across concurrent checkouts.
+            const sortedProductIds = [
+                ...new Set(cartItems.map((i) => i.productId)),
+            ].sort();
+
+            for (const productId of sortedProductIds) {
+                const stockLockKey = `lock:stock:${productId}`;
+                const stockAcquired = await this.distributedLock.acquire(
+                    stockLockKey,
+                    10_000, // 10s TTL per product lock
+                );
+
+                if (!stockAcquired) {
+                    throw new BadRequestException(
+                        `Could not reserve stock for product ${productId}. Please try again.`,
+                    );
+                }
+
+                acquiredStockLocks.push(stockLockKey);
             }
 
             order = await this.ordersRepository.save(
@@ -280,7 +310,11 @@ export class CheckoutFacade {
             }
             throw error;
         } finally {
-            release();
+            // Always release stock locks first (LIFO order), then the user checkout lock.
+            for (const lockKey of acquiredStockLocks.reverse()) {
+                await this.distributedLock.release(lockKey);
+            }
+            await this.distributedLock.release(checkoutLockKey);
         }
     }
 

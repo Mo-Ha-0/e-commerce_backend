@@ -7,7 +7,6 @@ import { InventoryLog } from '../database/entities/inventory-log.entity';
 import { Product } from '../database/entities/product.entity';
 import { MinioModule } from '../minio/minio.module';
 import { BATCH_SUMMARY_QUEUE } from '../queues/queue.constants';
-import { DistributedLockService } from '../common/distributed-lock.service';
 import { InventoryController } from './inventory.controller';
 import { InventoryService } from './inventory.service';
 import { BatchProcessor } from './services/batch.processor';
@@ -28,7 +27,6 @@ import { StockValidationService } from './services/stock-validation.service';
         BatchSummaryService,
         BatchProcessor,
         SalesSummaryPdfService,
-        DistributedLockService,
     ],
     exports: [StockValidationService],
 })

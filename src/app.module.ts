@@ -25,6 +25,7 @@ import { WalletModule } from './wallet/wallet.module';
 import { HealthModule } from './health/health.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { CacheModule } from './common/cache/cache.module';
+import { LockModule } from './common/lock/lock.module';
 import { DiscountsModule } from './discounts/discounts.module';
 
 @Module({
@@ -75,6 +76,7 @@ import { DiscountsModule } from './discounts/discounts.module';
             }),
         }),
         CacheModule,
+        LockModule,
         AuthModule,
         UsersModule,
         ProductsModule,
