@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { DistributedLockService } from '../common/distributed-lock.service';
 import { Discount } from '../database/entities/discount.entity';
 import {
     DiscountAuditLog,
@@ -12,6 +13,8 @@ import { UpdateDiscountDto } from './dto/update-discount.dto';
 import { CacheService } from '../common/cache/cache.service';
 
 const GLOBAL_DISCOUNT_HASH = 'active_discounts:global';
+const CRON_LOCK_KEY = 'cron:discount-cache-sweep';
+const CRON_LOCK_TTL_MS = 300_000;
 
 @Injectable()
 export class DiscountsService {
@@ -23,6 +26,7 @@ export class DiscountsService {
         @InjectRepository(DiscountAuditLog)
         private readonly auditLogsRepository: Repository<DiscountAuditLog>,
         private readonly cacheService: CacheService,
+        private readonly distributedLock: DistributedLockService,
     ) {}
 
     async create(dto: CreateDiscountDto) {
@@ -136,27 +140,42 @@ export class DiscountsService {
         }
     }
 
-    // This method is called by Cron to pre-warm the cache and clean expired discounts
     @Cron(CronExpression.EVERY_HOUR)
     async preWarmCache() {
-        this.logger.log('Starting hourly discount cache sweep...');
-        const activeDiscounts = await this.discountsRepository.find({
-            where: { isActive: true },
-        });
-
-        for (const discount of activeDiscounts) {
-            const now = new Date();
-            const hasStarted = !discount.startDate || discount.startDate <= now;
-            const hasEnded = discount.endDate && discount.endDate < now;
-
-            if (hasStarted && !hasEnded) {
-                await this.syncCache(discount);
-            } else if (hasEnded) {
-                discount.isActive = false;
-                await this.discountsRepository.save(discount);
-                await this.removeCache(discount);
-            }
+        const token = await this.distributedLock.acquire(
+            CRON_LOCK_KEY,
+            CRON_LOCK_TTL_MS,
+        );
+        if (!token) {
+            this.logger.log(
+                'Another instance holds the discount-cache-sweep lock, skipping',
+            );
+            return;
         }
-        this.logger.log('Hourly discount cache sweep completed.');
+
+        try {
+            this.logger.log('Starting hourly discount cache sweep...');
+            const activeDiscounts = await this.discountsRepository.find({
+                where: { isActive: true },
+            });
+
+            for (const discount of activeDiscounts) {
+                const now = new Date();
+                const hasStarted =
+                    !discount.startDate || discount.startDate <= now;
+                const hasEnded = discount.endDate && discount.endDate < now;
+
+                if (hasStarted && !hasEnded) {
+                    await this.syncCache(discount);
+                } else if (hasEnded) {
+                    discount.isActive = false;
+                    await this.discountsRepository.save(discount);
+                    await this.removeCache(discount);
+                }
+            }
+            this.logger.log('Hourly discount cache sweep completed.');
+        } finally {
+            await this.distributedLock.release(CRON_LOCK_KEY, token);
+        }
     }
 }

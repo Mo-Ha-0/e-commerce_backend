@@ -2,12 +2,15 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { LessThan, Repository } from 'typeorm';
+import { DistributedLockService } from '../../common/distributed-lock.service';
 import { FailedJob } from '../../database/entities/failed-job.entity';
 import { EmailService } from '../../email/email.service';
 import { InvoicePdfService } from '../../invoice/invoice-pdf.service';
 
 const MAX_RETRIES = 5;
 const BATCH_SIZE = 50;
+const CRON_LOCK_KEY = 'cron:failed-job-retry';
+const CRON_LOCK_TTL_MS = 240_000;
 
 @Injectable()
 export class FailedJobRetryService {
@@ -18,25 +21,43 @@ export class FailedJobRetryService {
         private readonly failedJobsRepository: Repository<FailedJob>,
         private readonly emailService: EmailService,
         private readonly invoicePdfService: InvoicePdfService,
+        private readonly distributedLock: DistributedLockService,
     ) {}
 
     @Cron(CronExpression.EVERY_5_MINUTES)
     async retryFailedJobs() {
-        const failed = await this.failedJobsRepository.find({
-            where: {
-                pendingRetry: true,
-                retryCount: LessThan(MAX_RETRIES),
-            },
-            take: BATCH_SIZE,
-            order: { createdAt: 'ASC' },
-        });
+        const token = await this.distributedLock.acquire(
+            CRON_LOCK_KEY,
+            CRON_LOCK_TTL_MS,
+        );
+        if (!token) {
+            this.logger.log(
+                'Another instance holds the failed-job-retry lock, skipping',
+            );
+            return;
+        }
 
-        if (failed.length === 0) return;
+        try {
+            const failed = await this.failedJobsRepository.find({
+                where: {
+                    pendingRetry: true,
+                    retryCount: LessThan(MAX_RETRIES),
+                },
+                take: BATCH_SIZE,
+                order: { createdAt: 'ASC' },
+            });
 
-        this.logger.log(`Retrying ${failed.length} failed post-checkout jobs`);
+            if (failed.length === 0) return;
 
-        for (const job of failed) {
-            await this.retry(job);
+            this.logger.log(
+                `Retrying ${failed.length} failed post-checkout jobs`,
+            );
+
+            for (const job of failed) {
+                await this.retry(job);
+            }
+        } finally {
+            await this.distributedLock.release(CRON_LOCK_KEY, token);
         }
     }
 

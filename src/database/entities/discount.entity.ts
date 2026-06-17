@@ -30,7 +30,7 @@ export class Discount {
     @Column({ type: 'decimal', precision: 10, scale: 2 })
     value: string;
 
-    @Column({ nullable: true })
+    @Column({ type: 'varchar', nullable: true })
     @Index()
     productId: string | null;
 

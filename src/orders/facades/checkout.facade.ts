@@ -5,7 +5,7 @@ import {
     NotFoundException,
 } from '@nestjs/common';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { centsToMoney, moneyToCents } from '../../common/money';
 import { DistributedLockService } from '../../common/distributed-lock.service';
 import { CartItem } from '../../database/entities/cart-item.entity';
@@ -77,7 +77,7 @@ export class CheckoutFacade {
 
         let heartbeat: ReturnType<typeof setInterval> | undefined;
         let order: Order | undefined;
-        const acquiredStockLocks: Array<{ key: string; token: string }> = [];
+        const acquiredStockLocks: string[] = [];
 
         try {
             heartbeat = setInterval(() => {
@@ -98,27 +98,40 @@ export class CheckoutFacade {
                 throw new BadRequestException('Cart is empty');
             }
 
-            const sortedProductIds = [
+            const productIds = [
                 ...new Set(cartItems.map((i) => i.productId)),
             ].sort();
 
-            for (const productId of sortedProductIds) {
-                const stockLockKey = `lock:stock:${productId}`;
-                const stockToken = await this.distributedLock.acquire(
-                    stockLockKey,
-                    10_000,
-                );
+            const products = await this.dataSource.manager.find(Product, {
+                where: { id: In(productIds) },
+                select: { id: true, stock: true },
+            });
+            const productStockMap = new Map(
+                products.map((p) => [p.id, p.stock]),
+            );
 
-                if (!stockToken) {
-                    throw new BadRequestException(
-                        `Could not reserve stock for product ${productId}. Please try again.`,
+            for (const productId of productIds) {
+                const stock = productStockMap.get(productId);
+                if (stock === undefined) {
+                    throw new NotFoundException(
+                        `Product ${productId} not found`,
                     );
                 }
 
-                acquiredStockLocks.push({
-                    key: stockLockKey,
-                    token: stockToken,
-                });
+                const semKey = `sem:stock:${productId}`;
+                const acquired = await this.distributedLock.acquireSemaphore(
+                    semKey,
+                    stock,
+                    30_000,
+                );
+
+                if (!acquired) {
+                    throw new BadRequestException(
+                        `Product ${productId} is currently out of stock. Please try again.`,
+                    );
+                }
+
+                acquiredStockLocks.push(semKey);
             }
 
             order = await this.ordersRepository.save(
@@ -333,8 +346,8 @@ export class CheckoutFacade {
             throw error;
         } finally {
             clearInterval(heartbeat);
-            for (const lock of acquiredStockLocks.reverse()) {
-                await this.distributedLock.release(lock.key, lock.token);
+            for (const key of acquiredStockLocks.reverse()) {
+                await this.distributedLock.releaseSemaphore(key);
             }
             await this.distributedLock.release(checkoutLockKey, checkoutToken);
         }

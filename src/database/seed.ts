@@ -53,6 +53,13 @@ const seedProducts: SeedProduct[] = [
         price: '249.99',
         stock: 25,
     },
+    {
+        name: 'Seed Stress Test Product',
+        description:
+            'High-stock product for NFR-9 stress testing with 100 concurrent users',
+        price: '9.99',
+        stock: 10000,
+    },
 ];
 
 function loadEnvFile() {

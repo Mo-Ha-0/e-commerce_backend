@@ -4,7 +4,7 @@ import {
     NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { QueryFailedError, Repository } from 'typeorm';
 import { CartItem } from '../database/entities/cart-item.entity';
 import { Product } from '../database/entities/product.entity';
 import { StockValidationService } from '../inventory/services/stock-validation.service';
@@ -186,7 +186,24 @@ export class CartService {
             cartItem.quantity += dto.quantity;
         }
 
-        await this.cartRepository.save(cartItem);
+        try {
+            await this.cartRepository.save(cartItem);
+        } catch (error) {
+            if (
+                error instanceof QueryFailedError &&
+                (error as any).code === '23505'
+            ) {
+                const existing = await this.cartRepository.findOne({
+                    where: { userId, productId: dto.productId },
+                });
+                if (existing) {
+                    existing.quantity += dto.quantity;
+                    await this.cartRepository.save(existing);
+                }
+            } else {
+                throw error;
+            }
+        }
         return this.findCart(userId);
     }
 
