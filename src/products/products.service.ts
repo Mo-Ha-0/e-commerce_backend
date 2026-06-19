@@ -39,7 +39,7 @@ export class ProductsService {
 
     async findAll(page = 1, limit = 20) {
         const safePage = Math.max(page, 1);
-        const safeLimit = Math.min(Math.max(limit, 1), 100);
+        const safeLimit = Math.min(Math.max(limit, 1), 1000);
 
         const cacheKey = CACHE_KEY_PRODUCT_LIST(safePage, safeLimit);
 

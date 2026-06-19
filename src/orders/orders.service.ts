@@ -18,7 +18,7 @@ export class OrdersService {
     findMine(userId: string) {
         return this.ordersRepository.find({
             where: { userId },
-            relations: { items: true },
+            relations: { items: { product: true } },
             order: { createdAt: 'DESC' },
         });
     }
@@ -26,7 +26,7 @@ export class OrdersService {
     async findOneForUser(orderId: string, userId: string, role: UserRole) {
         const order = await this.ordersRepository.findOne({
             where: { id: orderId },
-            relations: { items: true },
+            relations: { items: { product: true } },
         });
 
         if (!order) {
@@ -46,7 +46,7 @@ export class OrdersService {
 
     async findAll() {
         const orders = await this.ordersRepository.find({
-            relations: { items: true, user: true },
+            relations: { items: { product: true }, user: true },
             order: { createdAt: 'DESC' },
         });
 

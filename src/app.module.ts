@@ -28,6 +28,7 @@ import { MetricsModule } from './metrics/metrics.module';
 import { CacheModule } from './common/cache/cache.module';
 import { LockModule } from './common/lock/lock.module';
 import { DiscountsModule } from './discounts/discounts.module';
+import { LoggerModule } from './logger/logger.module';
 
 @Module({
     imports: [
@@ -89,6 +90,7 @@ import { DiscountsModule } from './discounts/discounts.module';
         HealthModule,
         MetricsModule,
         DiscountsModule,
+        LoggerModule,
     ],
     providers: [
         // {

@@ -12,6 +12,8 @@ services:
             minio:
                 condition: service_healthy
         restart: unless-stopped
+        volumes:
+            - ./logs:/app/logs
         healthcheck:
             test:
                 [
