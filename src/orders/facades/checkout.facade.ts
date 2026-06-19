@@ -77,7 +77,7 @@ export class CheckoutFacade {
 
         let heartbeat: ReturnType<typeof setInterval> | undefined;
         let order: Order | undefined;
-        const acquiredStockLocks: string[] = [];
+        const acquiredStockLocks: { key: string; quantity: number }[] = [];
 
         try {
             heartbeat = setInterval(() => {
@@ -118,20 +118,28 @@ export class CheckoutFacade {
                     );
                 }
 
+                const totalQuantity = cartItems
+                    .filter((item) => item.productId === productId)
+                    .reduce((sum, item) => sum + item.quantity, 0);
+
                 const semKey = `sem:stock:${productId}`;
                 const acquired = await this.distributedLock.acquireSemaphore(
                     semKey,
                     stock,
                     30_000,
+                    totalQuantity,
                 );
 
                 if (!acquired) {
                     throw new BadRequestException(
-                        `Product ${productId} is currently out of stock. Please try again.`,
+                        `Insufficient stock for product ${productId}. Requested: ${totalQuantity}, Available: ${stock}`,
                     );
                 }
 
-                acquiredStockLocks.push(semKey);
+                acquiredStockLocks.push({
+                    key: semKey,
+                    quantity: totalQuantity,
+                });
             }
 
             order = await this.ordersRepository.save(
@@ -346,8 +354,11 @@ export class CheckoutFacade {
             throw error;
         } finally {
             clearInterval(heartbeat);
-            for (const key of acquiredStockLocks.reverse()) {
-                await this.distributedLock.releaseSemaphore(key);
+            for (const lock of acquiredStockLocks.reverse()) {
+                await this.distributedLock.releaseSemaphore(
+                    lock.key,
+                    lock.quantity,
+                );
             }
             await this.distributedLock.release(checkoutLockKey, checkoutToken);
         }

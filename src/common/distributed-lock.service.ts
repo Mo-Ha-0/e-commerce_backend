@@ -19,19 +19,19 @@ const SAFE_EXTEND_SCRIPT = `
 
 const ACQUIRE_SEMAPHORE_SCRIPT = `
     redis.call("SET", KEYS[1], ARGV[1], "PX", ARGV[2], "NX")
-    local remaining = redis.call("DECR", KEYS[1])
+    local remaining = redis.call("DECRBY", KEYS[1], ARGV[3])
     if remaining >= 0 then
         redis.call("PEXPIRE", KEYS[1], ARGV[2])
         return 1
     else
-        redis.call("INCR", KEYS[1])
+        redis.call("INCRBY", KEYS[1], ARGV[3])
         return 0
     end
 `;
 
 const RELEASE_SEMAPHORE_SCRIPT = `
     if redis.call("EXISTS", KEYS[1]) == 1 then
-        return redis.call("INCR", KEYS[1])
+        return redis.call("INCRBY", KEYS[1], ARGV[1])
     end
     return 0
 `;
@@ -88,6 +88,7 @@ export class DistributedLockService implements OnModuleDestroy {
         key: string,
         initialCount: number,
         ttlMs: number,
+        count: number = 1,
     ): Promise<boolean> {
         const result = await this.redis.eval(
             ACQUIRE_SEMAPHORE_SCRIPT,
@@ -95,11 +96,12 @@ export class DistributedLockService implements OnModuleDestroy {
             key,
             String(initialCount),
             String(ttlMs),
+            String(count),
         );
         return result === 1;
     }
 
-    async releaseSemaphore(key: string): Promise<void> {
-        await this.redis.eval(RELEASE_SEMAPHORE_SCRIPT, 1, key);
+    async releaseSemaphore(key: string, count: number = 1): Promise<void> {
+        await this.redis.eval(RELEASE_SEMAPHORE_SCRIPT, 1, key, String(count));
     }
 }

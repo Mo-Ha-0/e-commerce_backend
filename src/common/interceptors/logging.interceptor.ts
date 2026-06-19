@@ -9,7 +9,7 @@ import { LoggerService } from '../../logger/logger.service';
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
-    private readonly skippedPaths: string[] = ['/health', '/actuator'];
+    // private readonly skippedPaths: string[] = ['/health', '/actuator'];
 
     constructor(private readonly loggerService: LoggerService) {}
 
@@ -18,9 +18,9 @@ export class LoggingInterceptor implements NestInterceptor {
         const response = context.switchToHttp().getResponse();
         const url = request.originalUrl ?? request.url;
 
-        if (this.skippedPaths.some((p) => url.startsWith(p))) {
-            return next.handle();
-        }
+        // if (this.skippedPaths.some((p) => url.startsWith(p))) {
+        //     return next.handle();
+        // }
 
         const controller = context.getClass().name;
         const handler = context.getHandler().name;
