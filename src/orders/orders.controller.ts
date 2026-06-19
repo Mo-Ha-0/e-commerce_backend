@@ -1,4 +1,12 @@
-import { Controller, Get, Param, Post, Res, UseGuards } from '@nestjs/common';
+import {
+    Controller,
+    Get,
+    Headers,
+    Param,
+    Post,
+    Res,
+    UseGuards,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import type { Response } from 'express';
 import type { JwtUser } from '../auth/jwt-user.type';
@@ -22,8 +30,11 @@ export class OrdersController {
 
     @Throttle({ default: { limit: 20, ttl: 60000 } })
     @Post()
-    checkout(@CurrentUser() user: JwtUser) {
-        return this.checkoutFacade.checkout(user.userId);
+    checkout(
+        @CurrentUser() user: JwtUser,
+        @Headers('Idempotency-Key') idempotencyKey?: string,
+    ) {
+        return this.checkoutFacade.checkout(user.userId, idempotencyKey);
     }
 
     @Get()

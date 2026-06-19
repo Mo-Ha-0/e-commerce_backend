@@ -71,12 +71,46 @@ async function seedTestUsers() {
     raceProduct.stock = 1;
     await productRepo.save(raceProduct);
 
+    const stressProduct = await productRepo.findOne({
+        where: { name: 'Seed Stress Test Product' },
+    });
+
+    if (stressProduct) {
+        stressProduct.stock = 10000;
+        await productRepo.save(stressProduct);
+        console.log(`Stress test product stock set to: ${stressProduct.stock}`);
+    }
+
     const passwordHash = await bcrypt.hash('password123', 10);
     const users: User[] = [];
 
-    console.log('Creating 100 test users...');
+    const STRESS_COUNT = 300;
 
-    for (let i = 1; i <= 100; i++) {
+    console.log(`Creating ${STRESS_COUNT} stress products...`);
+
+    const stressProducts: Product[] = [];
+    for (let i = 1; i <= STRESS_COUNT; i++) {
+        const name = `Seed Stress Product ${i}`;
+        let product = await productRepo.findOne({ where: { name } });
+        if (!product) {
+            product = await productRepo.save(
+                productRepo.create({
+                    name,
+                    description: `Stress test product ${i}`,
+                    price: '9.99',
+                    stock: 10000,
+                }),
+            );
+        } else {
+            product.stock = 10000;
+            await productRepo.save(product);
+        }
+        stressProducts.push(product);
+    }
+
+    console.log(`Creating ${STRESS_COUNT} test users...`);
+
+    for (let i = 1; i <= STRESS_COUNT; i++) {
         const email = `testuser${i}@test.com`;
 
         let user = await userRepo.findOne({ where: { email } });
@@ -87,27 +121,22 @@ async function seedTestUsers() {
                     email,
                     passwordHash,
                     role: UserRole.Customer,
-                    balance: '100.00',
+                    balance: '999999.99',
                 }),
             );
         } else {
-            user.balance = '100.00';
+            user.balance = '999999.99';
             await userRepo.save(user);
         }
 
         await cartRepo.delete({ userId: user.id });
-        // await cartRepo.save(
-        //     cartRepo.create({
-        //         userId: user.id,
-        //         productId: raceProduct.id,
-        //         quantity: 1,
-        //     }),
-        // );
 
         users.push(user);
     }
 
-    console.log('Done. 100 users created with product in cart.');
+    console.log(
+        `Done. ${STRESS_COUNT} users and ${STRESS_COUNT} stress products ready.`,
+    );
     console.log(`Race condition product id: ${raceProduct.id}`);
     console.log(`Race condition product stock: ${raceProduct.stock}`);
 

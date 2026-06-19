@@ -129,11 +129,11 @@ export class BatchSummaryService {
     // @Cron(CronExpression.EVERY_MINUTE)
     @Cron('0 2 1 * *')
     async handleScheduledBatchSummary() {
-        const acquired = await this.distributedLock.acquire(
+        const token = await this.distributedLock.acquire(
             CRON_LOCK_KEY,
             CRON_LOCK_TTL_MS,
         );
-        if (!acquired) {
+        if (!token) {
             this.logger.log('Another instance holds the cron lock, skipping');
             return;
         }
@@ -144,7 +144,7 @@ export class BatchSummaryService {
             );
             return await this.enqueueBatchSummary();
         } finally {
-            await this.distributedLock.release(CRON_LOCK_KEY);
+            await this.distributedLock.release(CRON_LOCK_KEY, token);
         }
     }
 

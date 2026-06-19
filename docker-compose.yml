@@ -12,6 +12,8 @@ services:
             minio:
                 condition: service_healthy
         restart: unless-stopped
+        volumes:
+            - ./logs:/app/logs
         healthcheck:
             test:
                 [
@@ -26,6 +28,7 @@ services:
             timeout: 5s
             retries: 3
             start_period: 15s
+        stop_grace_period: 30s
         deploy:
             resources:
                 limits:

@@ -20,7 +20,10 @@
         "test:e2e": "jest --config ./test/jest-e2e.json",
         "seed": "ts-node -r tsconfig-paths/register src/database/seed.ts",
         "seed:test": "ts-node -r tsconfig-paths/register src/database/seed-test.ts",
-        "artillery:csv": "ts-node artillery/generate-csv.ts"
+        "artillery:csv": "ts-node artillery/generate-csv.ts",
+        "test:stress": "k6 run k6/nfr9-stress-test.js",
+        "test:demo": "k6 run k6/demo-stress-test.js",
+        "test:report": "k6 run k6/stress-test-report.js"
     },
     "dependencies": {
         "@aws-sdk/client-s3": "^3.700.0",
@@ -49,7 +52,9 @@
         "prom-client": "^15.1.3",
         "reflect-metadata": "^0.2.2",
         "rxjs": "^7.8.1",
-        "typeorm": "^0.3.28"
+        "typeorm": "^0.3.28",
+        "winston": "^3.19.0",
+        "winston-daily-rotate-file": "^5.0.0"
     },
     "devDependencies": {
         "@eslint/eslintrc": "^3.2.0",

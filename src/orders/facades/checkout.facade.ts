@@ -4,11 +4,10 @@ import {
     Logger,
     NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectDataSource, InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, In, Repository } from 'typeorm';
 import { centsToMoney, moneyToCents } from '../../common/money';
-import { Semaphore } from '../../common/semaphore';
+import { DistributedLockService } from '../../common/distributed-lock.service';
 import { CartItem } from '../../database/entities/cart-item.entity';
 import { OrderItem } from '../../database/entities/order-item.entity';
 import {
@@ -26,12 +25,17 @@ import {
 import { EmailService } from '../../email/email.service';
 import { StockValidationService } from '../../inventory/services/stock-validation.service';
 import { InvoicePdfService } from '../../invoice/invoice-pdf.service';
+import { CacheService } from '../../common/cache/cache.service';
+import {
+    Discount,
+    DiscountType,
+} from '../../database/entities/discount.entity';
 import { LowStockNotificationService } from '../../notifications/low-stock-notification.service';
+import { FailedJob } from '../../database/entities/failed-job.entity';
 
 @Injectable()
 export class CheckoutFacade {
     private readonly logger = new Logger(CheckoutFacade.name);
-    private readonly checkoutSemaphore: Semaphore;
 
     constructor(
         @InjectDataSource()
@@ -40,22 +44,52 @@ export class CheckoutFacade {
         private readonly cartRepository: Repository<CartItem>,
         @InjectRepository(Order)
         private readonly ordersRepository: Repository<Order>,
+        @InjectRepository(FailedJob)
+        private readonly failedJobsRepository: Repository<FailedJob>,
         private readonly stockValidationService: StockValidationService,
         private readonly emailService: EmailService,
         private readonly invoicePdfService: InvoicePdfService,
         private readonly lowStockNotificationService: LowStockNotificationService,
-        configService: ConfigService,
-    ) {
-        this.checkoutSemaphore = new Semaphore(
-            Number(configService.get<string>('CHECKOUT_MAX_CONCURRENT', '10')),
-        );
-    }
+        private readonly cacheService: CacheService,
+        private readonly distributedLock: DistributedLockService,
+    ) {}
 
-    async checkout(userId: string) {
-        const release = await this.checkoutSemaphore.acquire();
+    async checkout(userId: string, idempotencyKey?: string) {
+        if (idempotencyKey) {
+            const existing = await this.ordersRepository.findOne({
+                where: { idempotencyKey },
+                relations: { items: true },
+            });
+            if (existing) return existing;
+        }
+
+        const checkoutLockKey = `lock:checkout:${userId}`;
+        const checkoutToken = await this.distributedLock.acquire(
+            checkoutLockKey,
+            30_000,
+        );
+
+        if (!checkoutToken) {
+            throw new BadRequestException(
+                'A checkout is already in progress for this user',
+            );
+        }
+
+        let heartbeat: ReturnType<typeof setInterval> | undefined;
         let order: Order | undefined;
+        const acquiredStockLocks: string[] = [];
 
         try {
+            heartbeat = setInterval(() => {
+                this.distributedLock
+                    .extend(checkoutLockKey, checkoutToken, 30_000)
+                    .catch(() => {
+                        this.logger.warn(
+                            'Checkout lock heartbeat extend failed',
+                        );
+                    });
+            }, 10_000);
+
             const cartItems = await this.cartRepository.find({
                 where: { userId },
             });
@@ -64,9 +98,46 @@ export class CheckoutFacade {
                 throw new BadRequestException('Cart is empty');
             }
 
+            const productIds = [
+                ...new Set(cartItems.map((i) => i.productId)),
+            ].sort();
+
+            const products = await this.dataSource.manager.find(Product, {
+                where: { id: In(productIds) },
+                select: { id: true, stock: true },
+            });
+            const productStockMap = new Map(
+                products.map((p) => [p.id, p.stock]),
+            );
+
+            for (const productId of productIds) {
+                const stock = productStockMap.get(productId);
+                if (stock === undefined) {
+                    throw new NotFoundException(
+                        `Product ${productId} not found`,
+                    );
+                }
+
+                const semKey = `sem:stock:${productId}`;
+                const acquired = await this.distributedLock.acquireSemaphore(
+                    semKey,
+                    stock,
+                    30_000,
+                );
+
+                if (!acquired) {
+                    throw new BadRequestException(
+                        `Product ${productId} is currently out of stock. Please try again.`,
+                    );
+                }
+
+                acquiredStockLocks.push(semKey);
+            }
+
             order = await this.ordersRepository.save(
                 this.ordersRepository.create({
                     userId,
+                    idempotencyKey: idempotencyKey,
                     totalAmount: '0.00',
                     status: OrderStatus.Pending,
                     paymentStatus: PaymentStatus.Pending,
@@ -74,6 +145,31 @@ export class CheckoutFacade {
             );
 
             const savedOrder = order;
+
+            const discountKeys = cartItems.map(
+                (item) => `discount:product:${item.productId}`,
+            );
+            discountKeys.push('discount:global:active');
+
+            const discounts =
+                await this.cacheService.mget<Discount>(discountKeys);
+            const globalDiscount = discounts.pop();
+
+            const now = new Date();
+            const isValid = (d: Discount | null | undefined): d is Discount => {
+                if (!d || !d.isActive) return false;
+                if (d.startDate && new Date(d.startDate) > now) return false;
+                if (d.endDate && new Date(d.endDate) <= now) return false;
+                return true;
+            };
+
+            const discountMap = new Map<string, Discount>();
+            discounts.forEach((discount) => {
+                if (isValid(discount) && discount.productId) {
+                    discountMap.set(discount.productId, discount);
+                }
+            });
+
             const { items, updatedProducts } =
                 await this.dataSource.transaction(async (manager) => {
                     cartItems.sort((a, b) =>
@@ -116,15 +212,67 @@ export class CheckoutFacade {
                             throw new NotFoundException('Product not found');
                         }
 
-                        totalAmountCents +=
-                            moneyToCents(product.price) * cartItem.quantity;
+                        const basePriceCents = moneyToCents(product.price);
+                        let priceWithProductDiscountCents = basePriceCents;
+                        let priceWithGlobalDiscountCents = basePriceCents;
+                        const productDiscount = discountMap.get(product.id);
+
+                        if (productDiscount) {
+                            let priceFloat = Number(product.price);
+                            if (
+                                productDiscount.type === DiscountType.PERCENTAGE
+                            ) {
+                                priceFloat =
+                                    priceFloat *
+                                    (1 - Number(productDiscount.value) / 100);
+                            } else if (
+                                productDiscount.type === DiscountType.FIXED
+                            ) {
+                                priceFloat = Math.max(
+                                    0,
+                                    priceFloat - Number(productDiscount.value),
+                                );
+                            }
+                            priceWithProductDiscountCents = Math.round(
+                                priceFloat * 100,
+                            );
+                        }
+
+                        if (isValid(globalDiscount)) {
+                            let priceFloat = Number(product.price);
+                            if (
+                                globalDiscount.type === DiscountType.PERCENTAGE
+                            ) {
+                                priceFloat =
+                                    priceFloat *
+                                    (1 - Number(globalDiscount.value) / 100);
+                            } else if (
+                                globalDiscount.type === DiscountType.FIXED
+                            ) {
+                                priceFloat = Math.max(
+                                    0,
+                                    priceFloat - Number(globalDiscount.value),
+                                );
+                            }
+                            priceWithGlobalDiscountCents = Math.round(
+                                priceFloat * 100,
+                            );
+                        }
+
+                        const finalPriceCents = Math.min(
+                            priceWithProductDiscountCents,
+                            priceWithGlobalDiscountCents,
+                            basePriceCents,
+                        );
+
+                        totalAmountCents += finalPriceCents * cartItem.quantity;
 
                         orderItems.push(
                             manager.getRepository(OrderItem).create({
                                 orderId: savedOrder.id,
                                 productId: product.id,
                                 quantity: cartItem.quantity,
-                                priceAtTime: product.price,
+                                priceAtTime: centsToMoney(finalPriceCents),
                             }),
                         );
                     }
@@ -197,7 +345,11 @@ export class CheckoutFacade {
             }
             throw error;
         } finally {
-            release();
+            clearInterval(heartbeat);
+            for (const key of acquiredStockLocks.reverse()) {
+                await this.distributedLock.releaseSemaphore(key);
+            }
+            await this.distributedLock.release(checkoutLockKey, checkoutToken);
         }
     }
 
@@ -205,24 +357,52 @@ export class CheckoutFacade {
         orderId: string,
         products: Product[],
     ) {
-        const results = await Promise.allSettled([
-            this.emailService.enqueueOrderConfirmation(orderId),
-            this.invoicePdfService.enqueueInvoiceGeneration(orderId),
-            this.lowStockNotificationService.enqueueLowStockAlerts(
-                orderId,
-                products,
-            ),
-        ]);
+        const jobs: Array<{
+            name: string;
+            fn: () => Promise<unknown>;
+        }> = [
+            {
+                name: 'email:order-confirmation',
+                fn: () => this.emailService.enqueueOrderConfirmation(orderId),
+            },
+            {
+                name: 'invoice:generation',
+                fn: () =>
+                    this.invoicePdfService.enqueueInvoiceGeneration(orderId),
+            },
+            {
+                name: 'low-stock:alert',
+                fn: () =>
+                    this.lowStockNotificationService.enqueueLowStockAlerts(
+                        orderId,
+                        products,
+                    ),
+            },
+        ];
 
-        results.forEach((result) => {
+        const results = await Promise.allSettled(jobs.map((job) => job.fn()));
+
+        for (let i = 0; i < jobs.length; i++) {
+            const result = results[i];
             if (result.status === 'rejected') {
-                this.logger.error(
-                    `Post-checkout job enqueue failed for order ${orderId}`,
+                const errorMessage =
                     result.reason instanceof Error
-                        ? result.reason.stack
-                        : String(result.reason),
+                        ? result.reason.message
+                        : String(result.reason);
+                this.logger.error(
+                    `Post-checkout job "${jobs[i].name}" failed for order ${orderId}: ${errorMessage}`,
+                );
+
+                await this.failedJobsRepository.save(
+                    this.failedJobsRepository.create({
+                        orderId,
+                        jobType: jobs[i].name,
+                        error: errorMessage,
+                        retryCount: 0,
+                        pendingRetry: true,
+                    }),
                 );
             }
-        });
+        }
     }
 }
